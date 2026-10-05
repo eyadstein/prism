@@ -1,0 +1,63 @@
+:root {
+  --bg: #111312;
+  --fg: #e8e6e1;
+  --muted: #8d8f8a;
+  --line: #2a2d2b;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: ui-sans-serif, system-ui, "Segoe UI", Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+}
+
+.shell {
+  max-width: 56rem;
+  margin: 0 auto;
+  padding: 4rem 1.5rem;
+}
+
+h1 {
+  margin: 0 0 0.25rem;
+  font-size: 2.5rem;
+  letter-spacing: -0.02em;
+}
+
+header p {
+  margin: 0 0 2rem;
+  color: var(--muted);
+}
+
+.spectrum {
+  height: 3rem;
+  border: 1px solid var(--line);
+  background: linear-gradient(
+    to right,
+    #3a0057,
+    #1f2fff,
+    #00b7ff,
+    #00d45a,
+    #ffe600,
+    #ff8a00,
+    #e00000,
+    #5a0000
+  );
+}
+
+.ticks {
+  display: flex;
+  justify-content: space-between;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+}

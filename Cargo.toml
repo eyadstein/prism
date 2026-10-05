@@ -1,0 +1,28 @@
+[workspace]
+resolver = "2"
+members = ["crates/prism-core", "crates/prism-cli", "crates/prism-wasm"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["Eyad Ahmed Abdelkareem"]
+repository = "https://github.com/eyadstein/prism"
+
+[workspace.dependencies]
+thiserror = "1"
+clap = { version = "4", features = ["derive"] }
+wasm-bindgen = "0.2"
+prism-core = { path = "crates/prism-core" }
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+module_name_repetitions = "allow"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
