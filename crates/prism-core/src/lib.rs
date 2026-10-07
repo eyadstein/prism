@@ -28,6 +28,7 @@ pub mod integrator;
 pub mod lens;
 pub mod material;
 pub mod math;
+pub mod optimize;
 pub mod png;
 pub mod render;
 pub mod scene;

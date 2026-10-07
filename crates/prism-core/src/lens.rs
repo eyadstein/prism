@@ -237,6 +237,25 @@ impl Lens {
         Self::new(surfaces)
     }
 
+    /// Formats the lens as a prescription that [`Lens::parse`] reads back.
+    pub fn to_prescription(&self) -> String {
+        let mut lines = vec!["# radius  thickness  glass  semi-aperture".to_owned()];
+        for s in &self.surfaces {
+            let radius = if s.radius == 0.0 {
+                "flat".to_owned()
+            } else {
+                format!("{:.6}", s.radius)
+            };
+            let glass = s.glass.map_or("air", |g| g.name);
+            let mut line = format!("{radius} {:.6} {glass}", s.thickness);
+            if s.semi_aperture.is_finite() {
+                line = format!("{line} {}", s.semi_aperture);
+            }
+            lines.push(line);
+        }
+        format!("{}\n", lines.join("\n"))
+    }
+
     /// The surfaces, front to back.
     pub fn surfaces(&self) -> &[Surface] {
         &self.surfaces

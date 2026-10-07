@@ -3,8 +3,9 @@
 use std::path::Path;
 use std::process::ExitCode;
 
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use prism_core::lens::{Lens, D_LINE_NM};
+use prism_core::optimize::{optimize, rms_spot_radius, Outcome, Problem};
 use prism_core::render::{render, RenderSettings};
 
 #[derive(Parser)]
@@ -18,6 +19,30 @@ struct Cli {
     command: Command,
 }
 
+#[derive(Args)]
+struct OptimizeArgs {
+    /// Path to the lens prescription.
+    lens: String,
+    /// Required effective focal length; defaults to the current one.
+    #[arg(long)]
+    target_efl: Option<f64>,
+    /// Surfaces whose curvature may change, for example 0,2 (default: all).
+    #[arg(long, value_delimiter = ',')]
+    vary: Vec<usize>,
+    /// Entrance pupil radius.
+    #[arg(long, default_value_t = 5.0)]
+    pupil: f64,
+    /// Field angles in degrees, for example 0,5.
+    #[arg(long, value_delimiter = ',', default_value = "0")]
+    fields: Vec<f64>,
+    /// Maximum number of iterations.
+    #[arg(long, default_value_t = 60)]
+    iterations: usize,
+    /// Write the optimized prescription to this file instead of printing it.
+    #[arg(short, long)]
+    out: Option<String>,
+}
+
 #[derive(Subcommand)]
 enum Command {
     /// Render a scene file to an image.
@@ -25,11 +50,8 @@ enum Command {
         /// Path to the scene description.
         scene: String,
     },
-    /// Optimize a lens prescription.
-    Optimize {
-        /// Path to the lens prescription.
-        lens: String,
-    },
+    /// Optimize a lens prescription with damped least squares.
+    Optimize(OptimizeArgs),
     /// Analyze a lens prescription: focal length and RMS spot size at three wavelengths.
     Analyze {
         /// Path to the lens prescription.
@@ -78,8 +100,8 @@ fn main() -> ExitCode {
             samples,
         } => run_demo(&out, width, height, samples),
         Command::Analyze { lens, pupil, field } => run_analyze(&lens, pupil, field),
+        Command::Optimize(args) => run_optimize(&args),
         Command::Render { scene } => not_yet("render", &scene),
-        Command::Optimize { lens } => not_yet("optimize", &lens),
     }
 }
 
@@ -161,5 +183,71 @@ fn analyze(lens: &Lens, path: &str, pupil: f64, field: f64) -> ExitCode {
             );
         println!("  {nm:.0} nm  {text}");
     }
+    ExitCode::SUCCESS
+}
+
+fn run_optimize(args: &OptimizeArgs) -> ExitCode {
+    let lens = match load_lens(&args.lens) {
+        Ok(lens) => lens,
+        Err(message) => {
+            eprintln!("{message}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let Some(start) = lens.paraxial(D_LINE_NM) else {
+        eprintln!("{}: lens has no finite focal length", args.lens);
+        return ExitCode::FAILURE;
+    };
+    let vary = if args.vary.is_empty() {
+        (0..lens.surfaces().len()).collect()
+    } else {
+        args.vary.clone()
+    };
+    let mut problem = Problem::new(
+        lens.with_image_distance(start.bfd),
+        vary,
+        args.target_efl.unwrap_or(start.efl),
+    );
+    problem.pupil_radius = args.pupil;
+    problem.fields_deg.clone_from(&args.fields);
+    let before_um = rms_spot_radius(&problem.lens, &problem) * 1000.0;
+    match optimize(&problem, args.iterations) {
+        Ok(outcome) => report(args, &problem, &outcome, start.efl, before_um),
+        Err(e) => {
+            eprintln!("optimization failed: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn report(
+    args: &OptimizeArgs,
+    problem: &Problem,
+    outcome: &Outcome,
+    start_efl: f64,
+    before_um: f64,
+) -> ExitCode {
+    let end_efl = outcome.lens.paraxial(D_LINE_NM).map_or(f64::NAN, |p| p.efl);
+    let after_um = rms_spot_radius(&outcome.lens, problem) * 1000.0;
+    println!("polychromatic RMS spot radius, focal length (d line):");
+    println!("  before: {before_um:.2} um, EFL {start_efl:.3}");
+    println!(
+        "  after:  {after_um:.2} um, EFL {end_efl:.3} ({} iterations)",
+        outcome.iterations
+    );
+    let text = outcome.lens.to_prescription();
+    if let Some(path) = &args.out {
+        return match write_file(path, text.as_bytes()) {
+            Ok(()) => {
+                println!("wrote {path}");
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("cannot write {path}: {e}");
+                ExitCode::FAILURE
+            }
+        };
+    }
+    print!("{text}");
     ExitCode::SUCCESS
 }

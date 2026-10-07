@@ -18,7 +18,8 @@ rendered with `prism demo`.
 | Spectral colour (CIE fit), Sellmeier glass catalogue, Fresnel | done |
 | Path tracer, multi-threaded renderer, PNG writer, demo scene | done |
 | Lens prescriptions, paraxial analysis, real ray tracing, spot diagrams | done |
-| Lens optimizer, MTF, field curvature, distortion | next |
+| Lens optimizer (damped least squares) | done |
+| MTF, field curvature, distortion analysis | next |
 | Scene description language | planned |
 | Denoiser (Python training, Rust inference) | planned |
 | WebAssembly build and web lens editor | planned |
@@ -29,6 +30,7 @@ rendered with `prism demo`.
     cargo run --release -p prism-cli -- demo --out docs/demo.png --width 1280 --height 720 --samples 128
     cargo run -q -p prism-cli -- info
     cargo run -q -p prism-cli -- analyze examples/doublet.lens
+    cargo run -q -p prism-cli -- optimize examples/singlet.lens
 
 ## How it works
 
@@ -50,7 +52,7 @@ XYZ, white balanced, and converted to sRGB.
 
 Engine modules: `math` (vectors, rays, boxes, seeded RNG), `geometry`, `bvh`,
 `color`, `glass`, `material`, `camera`, `scene`, `integrator`, `film`, `png`,
-`lens`, `render`, `demo`.
+`lens`, `optimize`, `render`, `demo`.
 
 ## Lens analysis
 
@@ -68,6 +70,18 @@ millimetres and light travels in the +z direction.
 the RMS spot radius at 450, 550 and 650 nm on a plane placed at the paraxial
 focus. The paraxial maths is tested against the thick-lens equation, and the
 real ray tracer is tested against the paraxial focus.
+## Lens optimization
+
+    prism optimize examples/singlet.lens --out singlet-optimized.lens
+
+`prism optimize` adjusts surface curvatures and the image distance with damped
+least squares (Levenberg-Marquardt). The merit function is the spot size at 450,
+550 and 650 nm measured from the d-line chief ray, plus a penalty that holds the
+effective focal length at its starting value (or at `--target-efl`). Use
+`--vary 0,2` to restrict which surfaces change and `--fields 0,5` to optimize
+off-axis as well. The result is printed as a prescription that `prism analyze`
+can read back.
+
 ## Testing
 
 Correctness is checked against known physics, not just against itself. A glass

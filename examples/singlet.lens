@@ -1,0 +1,4 @@
+# Biconvex N-BK7 singlet. `prism optimize` bends it to reduce spherical aberration.
+# radius  thickness  glass  semi-aperture
+100.0     4.0        N-BK7  12.5
+-100.0    95.0       air    12.5
