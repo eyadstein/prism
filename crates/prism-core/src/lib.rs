@@ -17,17 +17,28 @@
 )]
 
 pub mod bvh;
+pub mod camera;
 pub mod color;
+pub mod demo;
 pub mod error;
+pub mod film;
 pub mod geometry;
 pub mod glass;
+pub mod integrator;
 pub mod material;
 pub mod math;
+pub mod png;
+pub mod render;
+pub mod scene;
 
 pub use bvh::Bvh;
+pub use camera::Camera;
 pub use error::{PrismError, Result};
+pub use film::Image;
 pub use geometry::{Hit, Primitive, Sphere, Triangle};
 pub use math::{Aabb, Ray, Rng, Vec3};
+pub use render::RenderSettings;
+pub use scene::{Scene, Sky};
 
 /// Crate version, taken from `Cargo.toml`.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
