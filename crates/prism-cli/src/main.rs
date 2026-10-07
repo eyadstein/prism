@@ -1,12 +1,14 @@
 //! The `prism` command line tool.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
+use prism_core::film::Image;
 use prism_core::lens::{Lens, D_LINE_NM};
 use prism_core::optimize::{optimize, rms_spot_radius, Outcome, Problem};
 use prism_core::render::{render, RenderSettings};
+use prism_core::scenefile::SceneFile;
 
 #[derive(Parser)]
 #[command(
@@ -17,6 +19,24 @@ use prism_core::render::{render, RenderSettings};
 struct Cli {
     #[command(subcommand)]
     command: Command,
+}
+
+#[derive(Args)]
+struct RenderArgs {
+    /// Path to the scene file.
+    scene: String,
+    /// Output PNG file.
+    #[arg(short, long, default_value = "renders/render.png")]
+    out: String,
+    /// Image width in pixels (default: from the scene file, else 640).
+    #[arg(long)]
+    width: Option<usize>,
+    /// Image height in pixels (default: from the scene file, else 360).
+    #[arg(long)]
+    height: Option<usize>,
+    /// Spectral samples per pixel (default: from the scene file, else 64).
+    #[arg(long)]
+    samples: Option<u32>,
 }
 
 #[derive(Args)]
@@ -45,11 +65,8 @@ struct OptimizeArgs {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Render a scene file to an image.
-    Render {
-        /// Path to the scene description.
-        scene: String,
-    },
+    /// Render a scene file to a PNG image.
+    Render(RenderArgs),
     /// Optimize a lens prescription with damped least squares.
     Optimize(OptimizeArgs),
     /// Analyze a lens prescription: focal length and RMS spot size at three wavelengths.
@@ -99,15 +116,10 @@ fn main() -> ExitCode {
             height,
             samples,
         } => run_demo(&out, width, height, samples),
+        Command::Render(args) => run_render(&args),
         Command::Analyze { lens, pupil, field } => run_analyze(&lens, pupil, field),
         Command::Optimize(args) => run_optimize(&args),
-        Command::Render { scene } => not_yet("render", &scene),
     }
-}
-
-fn not_yet(name: &str, input: &str) -> ExitCode {
-    eprintln!("`prism {name} {input}` is not implemented yet");
-    ExitCode::from(2)
 }
 
 fn write_file(path: &str, bytes: &[u8]) -> std::io::Result<()> {
@@ -118,6 +130,19 @@ fn write_file(path: &str, bytes: &[u8]) -> std::io::Result<()> {
         std::fs::create_dir_all(dir)?;
     }
     std::fs::write(path, bytes)
+}
+
+fn save(out: &str, image: &Image, width: usize, height: usize, samples: u32) -> ExitCode {
+    match write_file(out, &image.to_png()) {
+        Ok(()) => {
+            println!("wrote {out} ({width}x{height}, {samples} spp)");
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("cannot write {out}: {e}");
+            ExitCode::FAILURE
+        }
+    }
 }
 
 #[allow(clippy::cast_precision_loss)]
@@ -134,16 +159,48 @@ fn run_demo(out: &str, width: usize, height: usize, samples: u32) -> ExitCode {
         ..RenderSettings::default()
     };
     let image = render(&scene, &camera, &settings);
-    match write_file(out, &image.to_png()) {
-        Ok(()) => {
-            println!("wrote {out} ({width}x{height}, {samples} spp)");
-            ExitCode::SUCCESS
-        }
+    save(out, &image, width, height, samples)
+}
+
+#[allow(clippy::cast_precision_loss)]
+fn run_render(args: &RenderArgs) -> ExitCode {
+    let text = match std::fs::read_to_string(&args.scene) {
+        Ok(text) => text,
         Err(e) => {
-            eprintln!("cannot write {out}: {e}");
-            ExitCode::FAILURE
+            eprintln!("cannot read {}: {e}", args.scene);
+            return ExitCode::FAILURE;
         }
+    };
+    let base = Path::new(&args.scene)
+        .parent()
+        .map_or_else(PathBuf::new, Path::to_path_buf);
+    let mut loader = |name: &str| {
+        std::fs::read_to_string(base.join(name)).map_err(|e| format!("cannot read {name}: {e}"))
+    };
+    let file = match SceneFile::parse_with(&text, &mut loader) {
+        Ok(file) => file,
+        Err(e) => {
+            eprintln!("{}: {e}", args.scene);
+            return ExitCode::FAILURE;
+        }
+    };
+    let preset = file.image;
+    let width = args.width.or(preset.map(|p| p.width)).unwrap_or(640);
+    let height = args.height.or(preset.map(|p| p.height)).unwrap_or(360);
+    let samples = args.samples.or(preset.map(|p| p.samples)).unwrap_or(64);
+    if width == 0 || height == 0 || samples == 0 {
+        eprintln!("width, height and samples must be at least 1");
+        return ExitCode::FAILURE;
     }
+    let camera = file.camera.camera(width as f64 / height as f64);
+    let settings = RenderSettings {
+        width,
+        height,
+        samples,
+        ..RenderSettings::default()
+    };
+    let image = render(&file.scene, &camera, &settings);
+    save(&args.out, &image, width, height, samples)
 }
 
 fn load_lens(path: &str) -> Result<Lens, String> {

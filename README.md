@@ -20,7 +20,7 @@ rendered with `prism demo`.
 | Lens prescriptions, paraxial analysis, real ray tracing, spot diagrams | done |
 | Lens optimizer (damped least squares) | done |
 | MTF, field curvature, distortion analysis | next |
-| Scene description language | planned |
+| Scene description files, OBJ meshes, `prism render` | done |
 | Denoiser (Python training, Rust inference) | planned |
 | WebAssembly build and web lens editor | planned |
 
@@ -31,6 +31,7 @@ rendered with `prism demo`.
     cargo run -q -p prism-cli -- info
     cargo run -q -p prism-cli -- analyze examples/doublet.lens
     cargo run -q -p prism-cli -- optimize examples/singlet.lens
+    cargo run --release -q -p prism-cli -- render examples/gem.scene
 
 ## How it works
 
@@ -52,8 +53,28 @@ XYZ, white balanced, and converted to sRGB.
 
 Engine modules: `math` (vectors, rays, boxes, seeded RNG), `geometry`, `bvh`,
 `color`, `glass`, `material`, `camera`, `scene`, `integrator`, `film`, `png`,
-`lens`, `optimize`, `render`, `demo`.
+`lens`, `optimize`, `obj`, `scenefile`, `render`, `demo`.
 
+## Scene files
+
+    sky 1.0 0.45
+    camera 0 2.2 6  0 0.9 0  38
+    image 640 360 96
+    floor 8 0.85 0.04
+    mesh octahedron.obj 1.0 0 1.0 0 glass DIAMOND
+
+One directive per line, `#` starts a comment, and y is up. Directives: `sky`,
+`camera` (required), `image`, `floor` (a checkerboard on y = 0), `sphere`,
+`triangle`, and `mesh` (a Wavefront OBJ file, found relative to the scene file).
+A material is `diffuse <r>`, `mirror <r>` or `glass <name>`, where the name is
+one of N-BK7, FUSED-SILICA, F2, SF11, SAPPHIRE, DIAMOND or WATER. A glass mesh
+must be closed, with faces wound counter-clockwise as seen from outside.
+
+    prism render examples/gem.scene --out docs/gem.png
+
+![Gem render](docs/gem.png)
+
+A diamond octahedron over a checkerboard, rendered with `prism render`.
 ## Lens analysis
 
 A lens prescription is a text file with one surface per line: radius, thickness
