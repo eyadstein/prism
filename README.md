@@ -19,7 +19,7 @@ rendered with `prism demo`.
 | Path tracer, multi-threaded renderer, PNG writer, demo scene | done |
 | Lens prescriptions, paraxial analysis, real ray tracing, spot diagrams | done |
 | Lens optimizer (damped least squares) | done |
-| MTF, field curvature, distortion analysis | next |
+| Distortion, field curvature, geometric MTF | done |
 | Scene description files, OBJ meshes, `prism render` | done |
 | Denoiser (Python training, Rust inference) | planned |
 | WebAssembly build and web lens editor | planned |
@@ -53,7 +53,7 @@ XYZ, white balanced, and converted to sRGB.
 
 Engine modules: `math` (vectors, rays, boxes, seeded RNG), `geometry`, `bvh`,
 `color`, `glass`, `material`, `camera`, `scene`, `integrator`, `film`, `png`,
-`lens`, `optimize`, `obj`, `scenefile`, `render`, `demo`.
+`lens`, `analysis`, `optimize`, `obj`, `scenefile`, `render`, `demo`.
 
 ## Scene files
 
@@ -91,6 +91,11 @@ millimetres and light travels in the +z direction.
 the RMS spot radius at 450, 550 and 650 nm on a plane placed at the paraxial
 focus. The paraxial maths is tested against the thick-lens equation, and the
 real ray tracer is tested against the paraxial focus.
+
+It also reports distortion and the tangential and sagittal best focus at 0, 5 and
+10 degrees, and the geometric MTF on axis. The MTF is the Fourier transform of
+the traced ray positions, so it ignores diffraction and is optimistic for small
+apertures.
 ## Lens optimization
 
     prism optimize examples/singlet.lens --out singlet-optimized.lens

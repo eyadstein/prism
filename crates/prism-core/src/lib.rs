@@ -16,6 +16,7 @@
     clippy::unreadable_literal
 )]
 
+pub mod analysis;
 pub mod bvh;
 pub mod camera;
 pub mod color;

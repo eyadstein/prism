@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
+use prism_core::analysis::{field_point, mtf_sagittal, mtf_tangential};
 use prism_core::film::Image;
 use prism_core::lens::{Lens, D_LINE_NM};
 use prism_core::optimize::{optimize, rms_spot_radius, Outcome, Problem};
@@ -239,6 +240,32 @@ fn analyze(lens: &Lens, path: &str, pupil: f64, field: f64) -> ExitCode {
                 |r| format!("RMS spot radius {:.2} um", r * 1000.0),
             );
         println!("  {nm:.0} nm  {text}");
+    }
+    println!("field analysis at 550 nm, image plane at the paraxial focus:");
+    println!("  field  ideal mm   real mm  distortion %  tangential mm  sagittal mm");
+    for angle in [0.0, 5.0, 10.0] {
+        if let Some(pt) = field_point(&focused, 550.0, angle, pupil, 41) {
+            println!(
+                "  {:>5.1}  {:>8.4}  {:>8.4}  {:>12.4}  {:>13.4}  {:>11.4}",
+                pt.field_deg,
+                pt.ideal_height,
+                pt.real_height,
+                pt.distortion_percent,
+                pt.tangential_focus,
+                pt.sagittal_focus
+            );
+        } else {
+            println!("  {angle:>5.1}  rays blocked");
+        }
+    }
+    let spot = focused.spot_diagram(550.0, 0.0, 41, pupil);
+    println!("geometric MTF on axis at 550 nm (tangential / sagittal):");
+    for lp in [5.0, 10.0, 20.0, 50.0] {
+        println!(
+            "  {lp:>4.0} lp/mm  {:.3} / {:.3}",
+            mtf_tangential(&spot, lp),
+            mtf_sagittal(&spot, lp)
+        );
     }
     ExitCode::SUCCESS
 }
