@@ -4,6 +4,7 @@ use std::path::Path;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
+use prism_core::lens::{Lens, D_LINE_NM};
 use prism_core::render::{render, RenderSettings};
 
 #[derive(Parser)]
@@ -29,10 +30,16 @@ enum Command {
         /// Path to the lens prescription.
         lens: String,
     },
-    /// Analyze a lens prescription (spot diagram, MTF, distortion).
+    /// Analyze a lens prescription: focal length and RMS spot size at three wavelengths.
     Analyze {
         /// Path to the lens prescription.
         lens: String,
+        /// Entrance pupil radius used for the spot diagrams.
+        #[arg(long, default_value_t = 5.0)]
+        pupil: f64,
+        /// Field angle in degrees.
+        #[arg(long, default_value_t = 0.0)]
+        field: f64,
     },
     /// Render the built-in demo scene to a PNG file.
     Demo {
@@ -70,9 +77,9 @@ fn main() -> ExitCode {
             height,
             samples,
         } => run_demo(&out, width, height, samples),
+        Command::Analyze { lens, pupil, field } => run_analyze(&lens, pupil, field),
         Command::Render { scene } => not_yet("render", &scene),
         Command::Optimize { lens } => not_yet("optimize", &lens),
-        Command::Analyze { lens } => not_yet("analyze", &lens),
     }
 }
 
@@ -115,4 +122,44 @@ fn run_demo(out: &str, width: usize, height: usize, samples: u32) -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+fn load_lens(path: &str) -> Result<Lens, String> {
+    let text = std::fs::read_to_string(path).map_err(|e| format!("cannot read {path}: {e}"))?;
+    Lens::parse(&text).map_err(|e| format!("{path}: {e}"))
+}
+
+fn run_analyze(path: &str, pupil: f64, field: f64) -> ExitCode {
+    match load_lens(path) {
+        Ok(lens) => analyze(&lens, path, pupil, field),
+        Err(message) => {
+            eprintln!("{message}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn analyze(lens: &Lens, path: &str, pupil: f64, field: f64) -> ExitCode {
+    let Some(p) = lens.paraxial(D_LINE_NM) else {
+        eprintln!("{path}: lens has no finite focal length");
+        return ExitCode::FAILURE;
+    };
+    println!("{path}: {} surfaces", lens.surfaces().len());
+    println!(
+        "effective focal length {:.3}, back focal distance {:.3} (paraxial, d line)",
+        p.efl, p.bfd
+    );
+    println!("spot diagrams at the paraxial focus: pupil radius {pupil}, field {field} deg");
+    let focused = lens.with_image_distance(p.bfd);
+    for nm in [450.0, 550.0, 650.0] {
+        let text = focused
+            .spot_diagram(nm, field, 41, pupil)
+            .rms_radius()
+            .map_or_else(
+                || "every ray was blocked".to_owned(),
+                |r| format!("RMS spot radius {:.2} um", r * 1000.0),
+            );
+        println!("  {nm:.0} nm  {text}");
+    }
+    ExitCode::SUCCESS
 }

@@ -17,6 +17,15 @@ pub enum PrismError {
         /// Human readable explanation.
         reason: String,
     },
+
+    /// A text file could not be parsed.
+    #[error("line {line}: {reason}")]
+    Parse {
+        /// One-based line number.
+        line: usize,
+        /// Human readable explanation.
+        reason: String,
+    },
 }
 
 /// Convenience alias used across the workspace.

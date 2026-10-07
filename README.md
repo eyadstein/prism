@@ -17,8 +17,8 @@ rendered with `prism demo`.
 | Vector maths, rays, spheres, triangles, SAH BVH | done |
 | Spectral colour (CIE fit), Sellmeier glass catalogue, Fresnel | done |
 | Path tracer, multi-threaded renderer, PNG writer, demo scene | done |
-| Lens prescriptions and sequential ray tracing | next |
-| Lens optimizer, spot diagrams, MTF | planned |
+| Lens prescriptions, paraxial analysis, real ray tracing, spot diagrams | done |
+| Lens optimizer, MTF, field curvature, distortion | next |
 | Scene description language | planned |
 | Denoiser (Python training, Rust inference) | planned |
 | WebAssembly build and web lens editor | planned |
@@ -28,6 +28,7 @@ rendered with `prism demo`.
     cargo run --release -p prism-cli -- demo
     cargo run --release -p prism-cli -- demo --out docs/demo.png --width 1280 --height 720 --samples 128
     cargo run -q -p prism-cli -- info
+    cargo run -q -p prism-cli -- analyze examples/doublet.lens
 
 ## How it works
 
@@ -49,8 +50,24 @@ XYZ, white balanced, and converted to sRGB.
 
 Engine modules: `math` (vectors, rays, boxes, seeded RNG), `geometry`, `bvh`,
 `color`, `glass`, `material`, `camera`, `scene`, `integrator`, `film`, `png`,
-`render`, `demo`.
+`lens`, `render`, `demo`.
 
+## Lens analysis
+
+A lens prescription is a text file with one surface per line: radius, thickness
+to the next surface, the glass behind the surface, and an optional
+semi-aperture. Use `flat` for a plane and `air` for no glass. Distances are in
+millimetres and light travels in the +z direction.
+
+    # radius  thickness  glass  aperture
+    44.78     4.0        N-BK7  12.5
+    -44.78    2.5        F2     12.5
+    -812      95.0       air    12.5
+
+`prism analyze` prints the paraxial focal length and back focal distance, then
+the RMS spot radius at 450, 550 and 650 nm on a plane placed at the paraxial
+focus. The paraxial maths is tested against the thick-lens equation, and the
+real ray tracer is tested against the paraxial focus.
 ## Testing
 
 Correctness is checked against known physics, not just against itself. A glass
