@@ -1,10 +1,29 @@
 //! Prism core: spectral light transport and lens design.
 
 #![forbid(unsafe_code)]
+#![allow(
+    clippy::many_single_char_names,
+    clippy::similar_names,
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::float_cmp,
+    clippy::too_many_lines,
+    clippy::needless_range_loop,
+    clippy::return_self_not_must_use,
+    clippy::missing_panics_doc,
+    clippy::doc_markdown
+)]
 
+pub mod bvh;
 pub mod error;
+pub mod geometry;
+pub mod math;
 
+pub use bvh::Bvh;
 pub use error::{PrismError, Result};
+pub use geometry::{Hit, Primitive, Sphere, Triangle};
+pub use math::{Aabb, Ray, Rng, Vec3};
 
 /// Crate version, taken from `Cargo.toml`.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -46,6 +65,6 @@ mod tests {
 
     #[test]
     fn version_is_set() {
-        assert!(!VERSION.is_empty(), "VERSION must not be empty");
+        assert_ne!(VERSION, "");
     }
 }
