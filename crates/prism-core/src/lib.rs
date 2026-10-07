@@ -12,12 +12,16 @@
     clippy::needless_range_loop,
     clippy::return_self_not_must_use,
     clippy::missing_panics_doc,
-    clippy::doc_markdown
+    clippy::doc_markdown,
+    clippy::unreadable_literal
 )]
 
 pub mod bvh;
+pub mod color;
 pub mod error;
 pub mod geometry;
+pub mod glass;
+pub mod material;
 pub mod math;
 
 pub use bvh::Bvh;
