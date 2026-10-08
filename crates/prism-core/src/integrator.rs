@@ -3,6 +3,7 @@
 use crate::material::{dielectric_scatter, Material};
 use crate::math::{Ray, Rng, Vec3};
 use crate::scene::Scene;
+use crate::thinfilm::thin_film_reflectance;
 
 /// Minimum ray parameter, which avoids re-hitting the surface a ray just left.
 const SURFACE_EPSILON: f64 = 1e-6;
@@ -35,6 +36,18 @@ pub fn radiance(scene: &Scene, mut ray: Ray, nm: f64, rng: &mut Rng, max_depth: 
             }
             Material::Dielectric(glass) => {
                 dielectric_scatter(ray.dir, &hit, glass, nm, rng.next_f64())
+            }
+            Material::ThinFilm {
+                index,
+                thickness_nm,
+            } => {
+                let d = ray.dir.normalized();
+                let cos_i = (-d.dot(hit.normal)).clamp(0.0, 1.0);
+                if rng.next_f64() < thin_film_reflectance(cos_i, *index, *thickness_nm, nm) {
+                    d.reflect(hit.normal)
+                } else {
+                    d
+                }
             }
         };
         ray = Ray::new(hit.point, dir);
@@ -102,6 +115,24 @@ mod tests {
         let mut scene = Scene::new(Sky::uniform(1.0));
         scene.add(Material::Dielectric(&SF11), sphere_at_z5());
         let mut rng = Rng::new(11);
+        for _ in 0..300 {
+            let target = Vec3::new(rng.range(-0.5, 0.5), rng.range(-0.5, 0.5), -5.0);
+            let nm = rng.range(380.0, 780.0);
+            let ray = Ray::new(Vec3::ZERO, target.normalized());
+            let l = radiance(&scene, ray, nm, &mut rng, 64);
+            assert!((l - 1.0).abs() < 1e-9, "wavelength {nm}: {l}");
+        }
+    }
+
+    #[test]
+    fn thin_film_sphere_in_a_furnace_conserves_energy() {
+        let mut scene = Scene::new(Sky::uniform(1.0));
+        let film = Material::ThinFilm {
+            index: 1.33,
+            thickness_nm: 280.0,
+        };
+        scene.add(film, sphere_at_z5());
+        let mut rng = Rng::new(21);
         for _ in 0..300 {
             let target = Vec3::new(rng.range(-0.5, 0.5), rng.range(-0.5, 0.5), -5.0);
             let nm = rng.range(380.0, 780.0);

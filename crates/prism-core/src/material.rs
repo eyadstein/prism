@@ -19,6 +19,13 @@ pub enum Material {
     },
     /// Transparent dispersive dielectric.
     Dielectric(&'static Glass),
+    /// Infinitely thin transparent film (such as a soap bubble wall) in air.
+    ThinFilm {
+        /// Refractive index of the film.
+        index: f64,
+        /// Film thickness in nanometres.
+        thickness_nm: f64,
+    },
 }
 
 /// Unpolarized Fresnel reflectance for light going from index `n1` into `n2`.

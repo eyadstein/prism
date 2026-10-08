@@ -35,6 +35,7 @@ pub mod png;
 pub mod render;
 pub mod scene;
 pub mod scenefile;
+pub mod thinfilm;
 
 pub use bvh::Bvh;
 pub use camera::Camera;

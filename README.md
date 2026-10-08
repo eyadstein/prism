@@ -20,6 +20,7 @@ rendered with `prism demo`.
 | Lens prescriptions, paraxial analysis, real ray tracing, spot diagrams | done |
 | Lens optimizer (damped least squares) | done |
 | Distortion, field curvature, geometric MTF | done |
+| Thin-film interference (soap bubbles) | done |
 | Scene description files, OBJ meshes, `prism render` | done |
 | Denoiser (Python training, Rust inference) | planned |
 | WebAssembly build and web lens editor | planned |
@@ -53,7 +54,7 @@ XYZ, white balanced, and converted to sRGB.
 
 Engine modules: `math` (vectors, rays, boxes, seeded RNG), `geometry`, `bvh`,
 `color`, `glass`, `material`, `camera`, `scene`, `integrator`, `film`, `png`,
-`lens`, `analysis`, `optimize`, `obj`, `scenefile`, `render`, `demo`.
+`lens`, `analysis`, `optimize`, `obj`, `scenefile`, `thinfilm`, `render`, `demo`.
 
 ## Scene files
 
@@ -69,6 +70,9 @@ One directive per line, `#` starts a comment, and y is up. Directives: `sky`,
 A material is `diffuse <r>`, `mirror <r>` or `glass <name>`, where the name is
 one of N-BK7, FUSED-SILICA, F2, SF11, SAPPHIRE, DIAMOND or WATER. A glass mesh
 must be closed, with faces wound counter-clockwise as seen from outside.
+`thinfilm <index> <nm>` is an infinitely thin film such as a soap bubble wall.
+Its colour comes from multiple-beam interference, so it depends on the film
+thickness and on the viewing angle (`examples/bubble.scene`).
 
     prism render examples/gem.scene --out docs/gem.png
 

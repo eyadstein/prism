@@ -9,7 +9,8 @@
 //! - `mesh <file.obj> <scale> <x y z> <material>`: glass meshes must be closed with
 //!   counter-clockwise faces seen from outside.
 //!
-//! A material is `diffuse <r>`, `mirror <r>` (reflectance 0 to 1) or `glass <name>`.
+//! A material is `diffuse <r>`, `mirror <r>` (reflectance 0 to 1), `glass <name>`, or
+//! `thinfilm <index> <thickness nm>` (an infinitely thin film such as a soap bubble wall).
 
 use std::collections::HashMap;
 use std::str::SplitWhitespace;
@@ -186,6 +187,20 @@ fn parse_material(line: &mut Line<'_>) -> Result<(String, Material)> {
             };
             Ok((format!("{kind}:{r}"), material))
         }
+        "thinfilm" => {
+            let index = line.number("film index")?;
+            if index < 1.0 {
+                return Err(line.error("film index must be at least 1"));
+            }
+            let thickness_nm = line.non_negative("film thickness in nm")?;
+            Ok((
+                format!("thinfilm:{index}:{thickness_nm}"),
+                Material::ThinFilm {
+                    index,
+                    thickness_nm,
+                },
+            ))
+        }
         "glass" => {
             let name = line.word("glass name")?;
             let glass = Glass::by_name(name)
@@ -193,7 +208,7 @@ fn parse_material(line: &mut Line<'_>) -> Result<(String, Material)> {
             Ok((format!("glass:{}", glass.name), Material::Dielectric(glass)))
         }
         other => Err(line.error(format!(
-            "unknown material `{other}` (use diffuse, mirror or glass)"
+            "unknown material `{other}` (use diffuse, mirror, glass or thinfilm)"
         ))),
     }
 }
