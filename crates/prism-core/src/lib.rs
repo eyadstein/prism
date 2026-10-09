@@ -33,6 +33,7 @@ pub mod obj;
 pub mod optimize;
 pub mod png;
 pub mod render;
+pub mod report;
 pub mod scene;
 pub mod scenefile;
 pub mod thinfilm;

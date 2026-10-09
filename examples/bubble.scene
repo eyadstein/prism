@@ -1,8 +1,9 @@
 # Soap bubbles: infinitely thin films whose colour comes from interference.
-sky 3.0 0.4
+# Dark horizon, bright zenith: the bubbles reflect the bright sky and glow against the dark.
+sky 0.06 2.5
 camera 0 1.5 6  0 1 0  38
 image 640 360 128
-floor 8 0.15 0.03
+floor 8 0.5 0.05
 sphere 0 1.2 0 1.2 thinfilm 1.33 280
 sphere 2.6 0.7 0.8 0.7 thinfilm 1.33 450
 sphere -2.4 0.6 1.0 0.6 thinfilm 1.33 180

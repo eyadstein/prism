@@ -61,14 +61,40 @@ fn render_pixel(
     film_rgb(acc.resolve())
 }
 
-/// Renders `scene` through `camera`. The result does not depend on the thread count.
+/// Worker threads to use: every core natively, one on WebAssembly (which cannot spawn threads).
+fn default_threads() -> usize {
+    if cfg!(target_arch = "wasm32") {
+        1
+    } else {
+        std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get)
+    }
+}
+
+/// Renders `scene` through `camera` using every available core.
+/// The result does not depend on the thread count.
 pub fn render(scene: &Scene, camera: &Camera, settings: &RenderSettings) -> Image {
+    render_with_threads(scene, camera, settings, default_threads())
+}
+
+/// Renders with an explicit number of worker threads. One thread renders on the calling thread.
+pub fn render_with_threads(
+    scene: &Scene,
+    camera: &Camera,
+    settings: &RenderSettings,
+    threads: usize,
+) -> Image {
     let (w, h) = (settings.width, settings.height);
     let mut image = Image::new(w, h);
     if w == 0 || h == 0 {
         return image;
     }
-    let threads = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
+    let threads = threads.max(1);
+    if threads == 1 {
+        for (index, px) in image.pixels.iter_mut().enumerate() {
+            *px = render_pixel(scene, camera, settings, index % w, index / w);
+        }
+        return image;
+    }
     let band_rows = h.div_ceil(threads).max(1);
     std::thread::scope(|scope| {
         for (band, chunk) in image.pixels.chunks_mut(band_rows * w).enumerate() {
@@ -132,6 +158,26 @@ mod tests {
         let a = render(&scene, &camera(), &settings);
         let b = render(&scene, &camera(), &settings);
         assert_eq!(a.pixels, b.pixels);
+    }
+
+    #[test]
+    fn thread_count_does_not_change_the_image() {
+        let scene = Scene::new(Sky {
+            horizon: 1.0,
+            zenith: 0.3,
+        });
+        let settings = RenderSettings {
+            width: 9,
+            height: 7,
+            samples: 4,
+            max_depth: 4,
+            seed: 5,
+        };
+        let one = render_with_threads(&scene, &camera(), &settings, 1);
+        let three = render_with_threads(&scene, &camera(), &settings, 3);
+        let zero = render_with_threads(&scene, &camera(), &settings, 0);
+        assert_eq!(one.pixels, three.pixels);
+        assert_eq!(one.pixels, zero.pixels);
     }
 
     #[test]

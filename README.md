@@ -23,7 +23,8 @@ rendered with `prism demo`.
 | Thin-film interference (soap bubbles) | done |
 | Scene description files, OBJ meshes, `prism render` | done |
 | Denoiser (Python training, Rust inference) | planned |
-| WebAssembly build and web lens editor | planned |
+| WebAssembly API (render scene, analyze lens, optimize lens) | done |
+| Web lens editor | next |
 
 ## Quick start
 
@@ -54,7 +55,7 @@ XYZ, white balanced, and converted to sRGB.
 
 Engine modules: `math` (vectors, rays, boxes, seeded RNG), `geometry`, `bvh`,
 `color`, `glass`, `material`, `camera`, `scene`, `integrator`, `film`, `png`,
-`lens`, `analysis`, `optimize`, `obj`, `scenefile`, `thinfilm`, `render`, `demo`.
+`lens`, `analysis`, `optimize`, `obj`, `scenefile`, `thinfilm`, `report`, `render`, `demo`.
 
 ## Scene files
 
@@ -72,7 +73,9 @@ one of N-BK7, FUSED-SILICA, F2, SF11, SAPPHIRE, DIAMOND or WATER. A glass mesh
 must be closed, with faces wound counter-clockwise as seen from outside.
 `thinfilm <index> <nm>` is an infinitely thin film such as a soap bubble wall.
 Its colour comes from multiple-beam interference, so it depends on the film
-thickness and on the viewing angle (`examples/bubble.scene`).
+thickness and on the viewing angle (xamples/bubble.scene).
+
+![Soap bubbles](docs/bubbles.png)
 
     prism render examples/gem.scene --out docs/gem.png
 
@@ -112,6 +115,16 @@ effective focal length at its starting value (or at `--target-efl`). Use
 off-axis as well. The result is printed as a prescription that `prism analyze`
 can read back.
 
+## WebAssembly
+
+    rustup target add wasm32-unknown-unknown
+    cargo build -p prism-wasm --target wasm32-unknown-unknown --release
+
+`crates/prism-wasm` exports `render_scene(text, width, height, samples)` (RGBA
+bytes for a canvas), `analyze_lens(text, pupil, field)`, `optimize_lens(text,
+iterations)`, `version()` and `check_wavelength(nm)`. Browsers cannot spawn
+threads from plain WebAssembly, so the renderer uses a single thread there; the
+image is identical to the multi-threaded one.
 ## Testing
 
 Correctness is checked against known physics, not just against itself. A glass

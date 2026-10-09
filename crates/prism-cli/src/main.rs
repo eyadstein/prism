@@ -4,11 +4,11 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
-use prism_core::analysis::{field_point, mtf_sagittal, mtf_tangential};
 use prism_core::film::Image;
 use prism_core::lens::{Lens, D_LINE_NM};
 use prism_core::optimize::{optimize, rms_spot_radius, Outcome, Problem};
 use prism_core::render::{render, RenderSettings};
+use prism_core::report::lens_report;
 use prism_core::scenefile::SceneFile;
 
 #[derive(Parser)]
@@ -220,54 +220,13 @@ fn run_analyze(path: &str, pupil: f64, field: f64) -> ExitCode {
 }
 
 fn analyze(lens: &Lens, path: &str, pupil: f64, field: f64) -> ExitCode {
-    let Some(p) = lens.paraxial(D_LINE_NM) else {
+    if let Some(text) = lens_report(lens, path, pupil, field) {
+        print!("{text}");
+        ExitCode::SUCCESS
+    } else {
         eprintln!("{path}: lens has no finite focal length");
-        return ExitCode::FAILURE;
-    };
-    println!("{path}: {} surfaces", lens.surfaces().len());
-    println!(
-        "effective focal length {:.3}, back focal distance {:.3} (paraxial, d line)",
-        p.efl, p.bfd
-    );
-    println!("spot diagrams at the paraxial focus: pupil radius {pupil}, field {field} deg");
-    let focused = lens.with_image_distance(p.bfd);
-    for nm in [450.0, 550.0, 650.0] {
-        let text = focused
-            .spot_diagram(nm, field, 41, pupil)
-            .rms_radius()
-            .map_or_else(
-                || "every ray was blocked".to_owned(),
-                |r| format!("RMS spot radius {:.2} um", r * 1000.0),
-            );
-        println!("  {nm:.0} nm  {text}");
+        ExitCode::FAILURE
     }
-    println!("field analysis at 550 nm, image plane at the paraxial focus:");
-    println!("  field  ideal mm   real mm  distortion %  tangential mm  sagittal mm");
-    for angle in [0.0, 5.0, 10.0] {
-        if let Some(pt) = field_point(&focused, 550.0, angle, pupil, 41) {
-            println!(
-                "  {:>5.1}  {:>8.4}  {:>8.4}  {:>12.4}  {:>13.4}  {:>11.4}",
-                pt.field_deg,
-                pt.ideal_height,
-                pt.real_height,
-                pt.distortion_percent,
-                pt.tangential_focus,
-                pt.sagittal_focus
-            );
-        } else {
-            println!("  {angle:>5.1}  rays blocked");
-        }
-    }
-    let spot = focused.spot_diagram(550.0, 0.0, 41, pupil);
-    println!("geometric MTF on axis at 550 nm (tangential / sagittal):");
-    for lp in [5.0, 10.0, 20.0, 50.0] {
-        println!(
-            "  {lp:>4.0} lp/mm  {:.3} / {:.3}",
-            mtf_tangential(&spot, lp),
-            mtf_sagittal(&spot, lp)
-        );
-    }
-    ExitCode::SUCCESS
 }
 
 fn run_optimize(args: &OptimizeArgs) -> ExitCode {
