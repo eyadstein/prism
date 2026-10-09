@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
+use prism_core::denoise::{denoise, DenoiseSettings};
+use prism_core::features::compute as compute_features;
 use prism_core::film::Image;
 use prism_core::lens::{Lens, D_LINE_NM};
 use prism_core::optimize::{optimize, rms_spot_radius, Outcome, Problem};
@@ -38,6 +40,9 @@ struct RenderArgs {
     /// Spectral samples per pixel (default: from the scene file, else 64).
     #[arg(long)]
     samples: Option<u32>,
+    /// Filter the image with the edge-avoiding wavelet denoiser.
+    #[arg(long)]
+    denoise: bool,
 }
 
 #[derive(Args)]
@@ -201,6 +206,18 @@ fn run_render(args: &RenderArgs) -> ExitCode {
         ..RenderSettings::default()
     };
     let image = render(&file.scene, &camera, &settings);
+    let image = if args.denoise {
+        let features = compute_features(&file.scene, &camera, width, height);
+        match denoise(&image, &features, &DenoiseSettings::default()) {
+            Ok(clean) => clean,
+            Err(e) => {
+                eprintln!("denoising failed: {e}");
+                return ExitCode::FAILURE;
+            }
+        }
+    } else {
+        image
+    };
     save(&args.out, &image, width, height, samples)
 }
 

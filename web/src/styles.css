@@ -206,3 +206,14 @@ textarea {
 code {
   font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
 }
+label.check {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.4rem;
+  padding-bottom: 0.4rem;
+}
+
+input[type="checkbox"] {
+  width: auto;
+  padding: 0;
+}

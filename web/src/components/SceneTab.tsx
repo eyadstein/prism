@@ -12,6 +12,7 @@ const QUALITY = [
 export default function SceneTab() {
   const [text, setText] = useState(DEFAULT_SCENE);
   const [quality, setQuality] = useState(0);
+  const [denoise, setDenoise] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState("");
@@ -26,7 +27,7 @@ export default function SceneTab() {
     setError(null);
     const started = performance.now();
     try {
-      const pixels = await renderScene(text, q.width, q.height, q.samples);
+      const pixels = await renderScene(text, q.width, q.height, q.samples, denoise);
       const canvas = canvasRef.current;
       const ctx = canvas?.getContext("2d");
       if (canvas && ctx) {
@@ -74,6 +75,14 @@ export default function SceneTab() {
                 </option>
               ))}
             </select>
+          </label>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={denoise}
+              onChange={(e) => setDenoise(e.target.checked)}
+            />
+            Denoise
           </label>
         </div>
         <textarea

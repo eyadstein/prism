@@ -5,6 +5,8 @@
 
 #![allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
 
+use prism_core::denoise::{denoise as denoise_image, DenoiseSettings};
+use prism_core::features::compute as compute_features;
 use prism_core::lens::{Lens, D_LINE_NM};
 use prism_core::math::{Ray, Vec3};
 use prism_core::optimize::{optimize, rms_spot_radius, Problem};
@@ -18,7 +20,13 @@ const MAX_ITERATIONS: usize = 200;
 const MAX_DRAWN_RAYS: usize = 201;
 const RAY_LEAD: f64 = 10.0;
 
-fn render_rgba(text: &str, width: usize, height: usize, samples: u32) -> Result<Vec<u8>, String> {
+fn render_rgba(
+    text: &str,
+    width: usize,
+    height: usize,
+    samples: u32,
+    denoise: bool,
+) -> Result<Vec<u8>, String> {
     if width == 0 || height == 0 || samples == 0 {
         return Err("width, height and samples must be at least 1".to_owned());
     }
@@ -34,6 +42,12 @@ fn render_rgba(text: &str, width: usize, height: usize, samples: u32) -> Result<
         ..RenderSettings::default()
     };
     let image = render(&file.scene, &camera, &settings);
+    let image = if denoise {
+        let features = compute_features(&file.scene, &camera, width, height);
+        denoise_image(&image, &features, &DenoiseSettings::default()).map_err(|e| e.to_string())?
+    } else {
+        image
+    };
     let rgb = image.to_srgb8();
     let mut rgba = Vec::with_capacity(width * height * 4);
     for i in 0..width * height {
@@ -140,10 +154,18 @@ pub fn check_wavelength(nm: f64) -> Result<f64, JsError> {
 }
 
 /// Renders a scene file (without `mesh` directives) to RGBA bytes, row by row, ready for
-/// a canvas `ImageData`.
+/// a canvas `ImageData`. With `denoise` set, the image is filtered with the edge-avoiding
+/// wavelet denoiser.
 #[wasm_bindgen]
-pub fn render_scene(text: &str, width: u32, height: u32, samples: u32) -> Result<Vec<u8>, JsError> {
-    render_rgba(text, width as usize, height as usize, samples).map_err(|e| JsError::new(&e))
+pub fn render_scene(
+    text: &str,
+    width: u32,
+    height: u32,
+    samples: u32,
+    denoise: bool,
+) -> Result<Vec<u8>, JsError> {
+    render_rgba(text, width as usize, height as usize, samples, denoise)
+        .map_err(|e| JsError::new(&e))
 }
 
 /// Analyzes a lens prescription and returns the text report.
@@ -182,19 +204,28 @@ mod tests {
 
     #[test]
     fn renders_rgba_bytes() {
-        let rgba = render_rgba(SCENE, 8, 6, 4).expect("renders");
+        let rgba = render_rgba(SCENE, 8, 6, 4, false).expect("renders");
         assert_eq!(rgba.len(), 8 * 6 * 4);
         assert!(rgba.iter().skip(3).step_by(4).all(|&a| a == 255));
         assert!(rgba.iter().step_by(4).any(|&r| r > 0));
     }
 
     #[test]
+    fn denoised_render_has_the_same_shape() {
+        let plain = render_rgba(SCENE, 8, 6, 4, false).expect("renders");
+        let clean = render_rgba(SCENE, 8, 6, 4, true).expect("renders");
+        assert_eq!(plain.len(), clean.len());
+        assert!(clean.iter().skip(3).step_by(4).all(|&a| a == 255));
+    }
+
+    #[test]
     fn render_errors_are_messages() {
-        let missing = render_rgba("sphere 0 0 0 1 diffuse 0.5\n", 4, 4, 1).expect_err("no camera");
+        let missing =
+            render_rgba("sphere 0 0 0 1 diffuse 0.5\n", 4, 4, 1, false).expect_err("no camera");
         assert!(missing.contains("camera"), "{missing}");
-        assert!(render_rgba(SCENE, 0, 4, 1).is_err());
-        assert!(render_rgba(SCENE, 4, 4, 0).is_err());
-        let large = render_rgba(SCENE, 3000, 3000, 1).expect_err("too large");
+        assert!(render_rgba(SCENE, 0, 4, 1, false).is_err());
+        assert!(render_rgba(SCENE, 4, 4, 0, false).is_err());
+        let large = render_rgba(SCENE, 3000, 3000, 1, false).expect_err("too large");
         assert!(large.contains("too large"), "{large}");
     }
 

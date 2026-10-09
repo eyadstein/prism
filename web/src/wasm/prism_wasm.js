@@ -93,17 +93,19 @@ export function optimize_lens(text, iterations) {
 
 /**
  * Renders a scene file (without `mesh` directives) to RGBA bytes, row by row, ready for
- * a canvas `ImageData`.
+ * a canvas `ImageData`. With `denoise` set, the image is filtered with the edge-avoiding
+ * wavelet denoiser.
  * @param {string} text
  * @param {number} width
  * @param {number} height
  * @param {number} samples
+ * @param {boolean} denoise
  * @returns {Uint8Array}
  */
-export function render_scene(text, width, height, samples) {
+export function render_scene(text, width, height, samples, denoise) {
     const ptr0 = passStringToWasm0(text, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len0 = WASM_VECTOR_LEN;
-    const ret = wasm.render_scene(ptr0, len0, width, height, samples);
+    const ret = wasm.render_scene(ptr0, len0, width, height, samples, denoise);
     if (ret[3]) {
         throw takeFromExternrefTable0(ret[2]);
     }

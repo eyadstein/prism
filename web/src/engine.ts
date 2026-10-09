@@ -100,6 +100,7 @@ export async function renderScene(
   width: number,
   height: number,
   samples: number,
+  denoise: boolean,
 ): Promise<Uint8Array> {
-  return asBytes(await send((id) => ({ id, kind: "render", text, width, height, samples })));
+  return asBytes(await send((id) => ({ id, kind: "render", text, width, height, samples, denoise })));
 }

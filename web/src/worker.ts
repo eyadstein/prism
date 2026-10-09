@@ -23,7 +23,13 @@ function run(request: EngineRequest): string | Float64Array | Uint8Array {
     case "drawing":
       return lens_drawing(request.text, request.nm, request.field, request.rays, request.pupil);
     case "render":
-      return render_scene(request.text, request.width, request.height, request.samples);
+      return render_scene(
+        request.text,
+        request.width,
+        request.height,
+        request.samples,
+        request.denoise,
+      );
   }
 }
 

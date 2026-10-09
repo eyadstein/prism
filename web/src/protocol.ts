@@ -11,7 +11,15 @@ export type EngineRequest =
       rays: number;
       pupil: number;
     }
-  | { id: number; kind: "render"; text: string; width: number; height: number; samples: number };
+  | {
+      id: number;
+      kind: "render";
+      text: string;
+      width: number;
+      height: number;
+      samples: number;
+      denoise: boolean;
+    };
 
 export type EngineReply =
   | { id: number; ok: true; value: string | Float64Array | Uint8Array }

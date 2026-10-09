@@ -22,7 +22,8 @@ rendered with `prism demo`.
 | Distortion, field curvature, geometric MTF | done |
 | Thin-film interference (soap bubbles) | done |
 | Scene description files, OBJ meshes, `prism render` | done |
-| Denoiser (Python training, Rust inference) | planned |
+| Edge-avoiding wavelet denoiser (guided by albedo, normal, depth) | done |
+| Learned denoiser (Python training) | planned |
 | WebAssembly API (render scene, analyze lens, optimize lens) | done |
 | Web lens and scene editor (Vite, React, engine in a Web Worker) | done |
 
@@ -55,7 +56,7 @@ XYZ, white balanced, and converted to sRGB.
 
 Engine modules: `math` (vectors, rays, boxes, seeded RNG), `geometry`, `bvh`,
 `color`, `glass`, `material`, `camera`, `scene`, `integrator`, `film`, `png`,
-`lens`, `analysis`, `optimize`, `obj`, `scenefile`, `thinfilm`, `report`, `render`, `demo`.
+`lens`, `analysis`, `optimize`, `obj`, `scenefile`, `thinfilm`, `report`, `features`, `denoise`, `render`, `demo`.
 
 ## Scene files
 
@@ -141,6 +142,20 @@ files. All engine calls run in a Web Worker, so the page stays responsive.
 `web/src/wasm` holds the generated WebAssembly bindings and is committed, so CI
 and Docker builds need no wasm toolchain. Run `scripts/build-wasm.ps1` again after
 changing the exported functions in `crates/prism-wasm`.
+## Denoising
+
+Low sample counts are noisy, partly because every sample also picks a random
+wavelength. `prism render --denoise` filters the image with an edge-avoiding
+a-trous wavelet filter. It is guided by noise-free albedo, normal and depth
+buffers, so object edges and checkerboard edges stay sharp while the noise is
+averaged away. The web editor has a Denoise switch that does the same.
+
+    prism render examples/demo.scene --samples 16 --out docs/noisy-16spp.png
+    prism render examples/demo.scene --samples 16 --denoise --out docs/denoised-16spp.png
+
+![16 samples per pixel](docs/noisy-16spp.png)
+
+![16 samples per pixel, denoised](docs/denoised-16spp.png)
 ## Testing
 
 Correctness is checked against known physics, not just against itself. A glass

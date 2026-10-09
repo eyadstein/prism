@@ -25,9 +25,10 @@ export function optimize_lens(text: string, iterations: number): string;
 
 /**
  * Renders a scene file (without `mesh` directives) to RGBA bytes, row by row, ready for
- * a canvas `ImageData`.
+ * a canvas `ImageData`. With `denoise` set, the image is filtered with the edge-avoiding
+ * wavelet denoiser.
  */
-export function render_scene(text: string, width: number, height: number, samples: number): Uint8Array;
+export function render_scene(text: string, width: number, height: number, samples: number, denoise: boolean): Uint8Array;
 
 /**
  * Returns the engine version string.
@@ -42,7 +43,7 @@ export interface InitOutput {
     readonly check_wavelength: (a: number) => [number, number, number];
     readonly lens_drawing: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
     readonly optimize_lens: (a: number, b: number, c: number) => [number, number, number, number];
-    readonly render_scene: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
+    readonly render_scene: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
     readonly version: () => [number, number];
     readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
