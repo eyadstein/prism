@@ -319,6 +319,35 @@ impl Lens {
         Ok(ray)
     }
 
+    /// Traces a ray and returns where it meets each surface, bracketed by its starting
+    /// point and the point where it crosses the image plane. Used to draw ray diagrams.
+    pub fn trace_path(&self, incoming: Ray, nm: f64) -> core::result::Result<Vec<Vec3>, RayFate> {
+        let mut ray = Ray::new(incoming.origin, incoming.dir.normalized());
+        let mut points = vec![ray.origin];
+        let mut n = 1.0_f64;
+        let mut vertex_z = 0.0_f64;
+        for s in &self.surfaces {
+            let (point, normal) = s.intersect(&ray, vertex_z).ok_or(RayFate::Missed)?;
+            if point.x.hypot(point.y) > s.semi_aperture {
+                return Err(RayFate::Vignetted);
+            }
+            let n_next = s.index(nm);
+            let dir = ray
+                .dir
+                .refract(normal, n / n_next)
+                .ok_or(RayFate::TotalInternalReflection)?;
+            points.push(point);
+            ray = Ray::new(point, dir);
+            n = n_next;
+            vertex_z += s.thickness;
+        }
+        if ray.dir.z <= 0.0 {
+            return Err(RayFate::Missed);
+        }
+        let t = (self.image_z() - ray.origin.z) / ray.dir.z;
+        points.push(ray.at(t));
+        Ok(points)
+    }
     /// Traces a ray and returns where it crosses the image plane.
     pub fn trace_to_image(&self, incoming: Ray, nm: f64) -> core::result::Result<Vec3, RayFate> {
         let out = self.trace(incoming, nm)?;
@@ -501,6 +530,27 @@ mod tests {
         assert!(stopped.trace(narrow, 550.0).is_ok());
     }
 
+    #[test]
+    fn path_has_one_point_per_surface_plus_both_ends() {
+        let lens = plano_convex();
+        let focus = lens.paraxial(D_LINE_NM).expect("finite focus");
+        let focused = lens.with_image_distance(focus.bfd);
+        let ray = Ray::new(Vec3::new(0.0, 1.0, 0.0), Vec3::new(0.0, 0.0, 1.0));
+        let path = focused.trace_path(ray, D_LINE_NM).expect("ray passes");
+        assert_eq!(path.len(), 4);
+        assert_eq!(path[0], ray.origin);
+        assert!((path[3].z - (5.0 + focus.bfd)).abs() < 1e-9);
+        assert!(path[3].y.abs() < 0.01, "y = {}", path[3].y);
+        let image = focused.trace_to_image(ray, D_LINE_NM).expect("ray passes");
+        assert!(path[3].near(image, 1e-12));
+    }
+
+    #[test]
+    fn path_reports_why_a_ray_failed() {
+        let tiny = Lens::new(vec![s(2.0, 5.0, Some(&BK7)), s(0.0, 5.0, None)]).expect("valid lens");
+        let far = Ray::new(Vec3::new(5.0, 0.0, 0.0), Vec3::new(0.0, 0.0, 1.0));
+        assert_eq!(tiny.trace_path(far, 550.0).err(), Some(RayFate::Missed));
+    }
     #[test]
     fn image_distance_can_be_changed() {
         let lens = plano_convex().with_image_distance(7.5);

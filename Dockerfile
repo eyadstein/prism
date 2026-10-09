@@ -9,6 +9,7 @@ WORKDIR /web
 COPY web/package*.json ./
 RUN npm ci
 COPY web .
+COPY examples /examples
 RUN npm run build
 
 FROM debian:bookworm-slim

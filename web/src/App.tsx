@@ -1,8 +1,16 @@
-import { formatNm } from "./lib/format";
+import { useState } from "react";
+import LensTab from "./components/LensTab";
+import SceneTab from "./components/SceneTab";
 
-const TICKS = [380, 450, 520, 580, 650, 780];
+type Tab = "lens" | "scene";
+
+const TABS: { id: Tab; label: string }[] = [
+  { id: "lens", label: "Lens" },
+  { id: "scene", label: "Scene" },
+];
 
 export default function App() {
+  const [tab, setTab] = useState<Tab>("lens");
   return (
     <main className="shell">
       <header>
@@ -14,11 +22,26 @@ export default function App() {
         role="img"
         aria-label="Visible spectrum from 380 to 780 nanometres"
       />
-      <ul className="ticks">
-        {TICKS.map((nm) => (
-          <li key={nm}>{formatNm(nm)}</li>
+      <div className="tabs" role="tablist">
+        {TABS.map(({ id, label }) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={tab === id}
+            className={tab === id ? "tab active" : "tab"}
+            onClick={() => setTab(id)}
+          >
+            {label}
+          </button>
         ))}
-      </ul>
+      </div>
+      <div hidden={tab !== "lens"}>
+        <LensTab />
+      </div>
+      <div hidden={tab !== "scene"}>
+        <SceneTab />
+      </div>
     </main>
   );
 }

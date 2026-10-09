@@ -24,7 +24,7 @@ rendered with `prism demo`.
 | Scene description files, OBJ meshes, `prism render` | done |
 | Denoiser (Python training, Rust inference) | planned |
 | WebAssembly API (render scene, analyze lens, optimize lens) | done |
-| Web lens editor | next |
+| Web lens and scene editor (Vite, React, engine in a Web Worker) | done |
 
 ## Quick start
 
@@ -122,9 +122,25 @@ can read back.
 
 `crates/prism-wasm` exports `render_scene(text, width, height, samples)` (RGBA
 bytes for a canvas), `analyze_lens(text, pupil, field)`, `optimize_lens(text,
-iterations)`, `version()` and `check_wavelength(nm)`. Browsers cannot spawn
+iterations)`, `lens_drawing(...)`, `version()` and `check_wavelength(nm)`. Browsers cannot spawn
 threads from plain WebAssembly, so the renderer uses a single thread there; the
 image is identical to the multi-threaded one.
+## Web editor
+
+    powershell -File scripts/build-wasm.ps1
+    cd web
+    npm install
+    npm run dev
+
+The Lens tab draws a cross-section with rays traced through the real lens at 450,
+550 and 650 nm. The image plane sits at the d-line focus, so chromatic aberration
+is visible as the three colours missing the focus by different amounts. It also
+shows the analysis report and can run the optimizer. The Scene tab renders scene
+files. All engine calls run in a Web Worker, so the page stays responsive.
+
+`web/src/wasm` holds the generated WebAssembly bindings and is committed, so CI
+and Docker builds need no wasm toolchain. Run `scripts/build-wasm.ps1` again after
+changing the exported functions in `crates/prism-wasm`.
 ## Testing
 
 Correctness is checked against known physics, not just against itself. A glass

@@ -6,6 +6,7 @@
 #![allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
 
 use prism_core::lens::{Lens, D_LINE_NM};
+use prism_core::math::{Ray, Vec3};
 use prism_core::optimize::{optimize, rms_spot_radius, Problem};
 use prism_core::render::{render, RenderSettings};
 use prism_core::report::lens_report;
@@ -14,6 +15,8 @@ use wasm_bindgen::prelude::*;
 
 const MAX_PIXELS: usize = 4_000_000;
 const MAX_ITERATIONS: usize = 200;
+const MAX_DRAWN_RAYS: usize = 201;
+const RAY_LEAD: f64 = 10.0;
 
 fn render_rgba(text: &str, width: usize, height: usize, samples: u32) -> Result<Vec<u8>, String> {
     if width == 0 || height == 0 || samples == 0 {
@@ -63,6 +66,67 @@ fn optimize_text(text: &str, iterations: usize) -> Result<String, String> {
     ))
 }
 
+/// Flat layout: `[surface_count, image_z, (vertex_z, radius, aperture, glass) per surface,
+/// ray_count, (point_count, (z, y) per point) per ray]`. The image plane sits at the d-line
+/// paraxial focus, so rays of other wavelengths show chromatic aberration.
+fn drawing_data(
+    text: &str,
+    nm: f64,
+    field_deg: f64,
+    rays: usize,
+    pupil: f64,
+) -> Result<Vec<f64>, String> {
+    if rays == 0 || rays > MAX_DRAWN_RAYS {
+        return Err(format!("rays must be between 1 and {MAX_DRAWN_RAYS}"));
+    }
+    if !(pupil.is_finite() && pupil > 0.0) {
+        return Err("pupil radius must be positive".to_owned());
+    }
+    prism_core::check_wavelength(nm).map_err(|e| e.to_string())?;
+    let lens = Lens::parse(text).map_err(|e| e.to_string())?;
+    let focus = lens
+        .paraxial(D_LINE_NM)
+        .ok_or_else(|| "lens has no finite focal length".to_owned())?;
+    if focus.bfd <= 0.0 {
+        return Err("the focus lies inside the lens, so it cannot be drawn".to_owned());
+    }
+    let lens = lens.with_image_distance(focus.bfd);
+    let image_z: f64 = lens.surfaces().iter().map(|s| s.thickness).sum();
+
+    let theta = field_deg.to_radians();
+    let dir = Vec3::new(0.0, theta.sin(), theta.cos());
+    let mut out = vec![lens.surfaces().len() as f64, image_z];
+    let mut vertex_z = 0.0;
+    for s in lens.surfaces() {
+        out.push(vertex_z);
+        out.push(s.radius);
+        out.push(s.semi_aperture.min(pupil * 1.5));
+        out.push(if s.glass.is_some() { 1.0 } else { 0.0 });
+        vertex_z += s.thickness;
+    }
+    let mut paths = Vec::new();
+    for k in 0..rays {
+        let u = if rays == 1 {
+            0.0
+        } else {
+            (k as f64 / (rays - 1) as f64 * 2.0 - 1.0) * pupil
+        };
+        let start = Vec3::new(0.0, u, 0.0) - dir * RAY_LEAD;
+        if let Ok(path) = lens.trace_path(Ray::new(start, dir), nm) {
+            paths.push(path);
+        }
+    }
+    out.push(paths.len() as f64);
+    for path in &paths {
+        out.push(path.len() as f64);
+        for p in path {
+            out.push(p.z);
+            out.push(p.y);
+        }
+    }
+    Ok(out)
+}
+
 /// Returns the engine version string.
 #[wasm_bindgen]
 pub fn version() -> String {
@@ -95,12 +159,26 @@ pub fn optimize_lens(text: &str, iterations: u32) -> Result<String, JsError> {
     optimize_text(text, iterations as usize).map_err(|e| JsError::new(&e))
 }
 
+/// Traces `rays` rays across the pupil at wavelength `nm` and returns the surface layout
+/// and ray paths for drawing a cross-section (see the layout in the source).
+#[wasm_bindgen]
+pub fn lens_drawing(
+    text: &str,
+    nm: f64,
+    field_deg: f64,
+    rays: u32,
+    pupil: f64,
+) -> Result<Vec<f64>, JsError> {
+    drawing_data(text, nm, field_deg, rays as usize, pupil).map_err(|e| JsError::new(&e))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     const SCENE: &str = "camera 0 0 5 0 0 0 40\nsphere 0 0 0 1 mirror 0.5\n";
     const SINGLET: &str = include_str!("../../../examples/singlet.lens");
+    const PLANO: &str = include_str!("../../../examples/plano-convex.lens");
 
     #[test]
     fn renders_rgba_bytes() {
@@ -122,8 +200,7 @@ mod tests {
 
     #[test]
     fn analyzes_a_lens() {
-        let text = include_str!("../../../examples/plano-convex.lens");
-        let report = analyze_text(text, 5.0, 0.0).expect("analyzes");
+        let report = analyze_text(PLANO, 5.0, 0.0).expect("analyzes");
         assert!(report.contains("effective focal length 100.000"));
         assert!(analyze_text("flat 5 N-BK7\nflat 10 air\n", 5.0, 0.0).is_err());
         assert!(analyze_text("1 2 unobtainium\n", 5.0, 0.0).is_err());
@@ -135,6 +212,41 @@ mod tests {
         assert!(out.starts_with("# RMS spot radius"));
         assert_eq!(Lens::parse(&out).expect("round trip").surfaces().len(), 2);
         assert!(optimize_text("flat 5 N-BK7\nflat 10 air\n", 5).is_err());
+    }
+
+    #[test]
+    fn drawing_has_the_documented_layout() {
+        let d = drawing_data(PLANO, 550.0, 0.0, 5, 5.0).expect("draws");
+        assert!((d[0] - 2.0).abs() < 1e-12);
+        assert!(d[1] > 90.0, "image plane at {}", d[1]);
+        assert!((d[2] - 0.0).abs() < 1e-12);
+        assert!((d[3] - 51.68).abs() < 1e-9);
+        assert!((d[4] - 7.5).abs() < 1e-9);
+        assert!((d[5] - 1.0).abs() < 1e-12);
+        assert!((d[6] - 5.0).abs() < 1e-12);
+        assert!((d[10] - 5.0).abs() < 1e-12);
+        assert!((d[11] - 4.0).abs() < 1e-12);
+        assert_eq!(d.len(), 56);
+    }
+
+    #[test]
+    fn drawing_rays_converge_on_the_image_plane() {
+        let d = drawing_data(PLANO, 587.56, 0.0, 5, 5.0).expect("draws");
+        let image_z = d[1];
+        let end_z = d[11 + 1 + 6];
+        let end_y = d[11 + 1 + 7];
+        assert!((end_z - image_z).abs() < 1e-9);
+        assert!(end_y.abs() < 0.5, "end y = {end_y}");
+    }
+
+    #[test]
+    fn drawing_rejects_bad_requests() {
+        assert!(drawing_data(PLANO, 550.0, 0.0, 0, 5.0).is_err());
+        assert!(drawing_data(PLANO, 550.0, 0.0, 500, 5.0).is_err());
+        assert!(drawing_data(PLANO, 550.0, 0.0, 5, 0.0).is_err());
+        assert!(drawing_data(PLANO, 200.0, 0.0, 5, 5.0).is_err());
+        assert!(drawing_data("flat 5 N-BK7\nflat 10 air\n", 550.0, 0.0, 5, 5.0).is_err());
+        assert!(drawing_data("nonsense", 550.0, 0.0, 5, 5.0).is_err());
     }
 
     #[test]
