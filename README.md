@@ -23,6 +23,7 @@ rendered with `prism demo`.
 | Thin-film interference (soap bubbles) | done |
 | Scene description files, OBJ meshes, `prism render` | done |
 | Edge-avoiding wavelet denoiser (guided by albedo, normal, depth) | done |
+| Python tools: PNG codec, image metrics, independent paraxial cross-check, denoiser benchmark | done |
 | Learned denoiser (Python training) | planned |
 | WebAssembly API (render scene, analyze lens, optimize lens) | done |
 | Web lens and scene editor (Vite, React, engine in a Web Worker) | done |
@@ -156,6 +157,23 @@ averaged away. The web editor has a Denoise switch that does the same.
 ![16 samples per pixel](docs/noisy-16spp.png)
 
 ![16 samples per pixel, denoised](docs/denoised-16spp.png)
+## Python tools
+
+    cd python
+    python -m venv .venv
+    .venv\Scripts\activate
+    pip install -e ".[dev]"
+    pytest
+    prism-bench
+
+The `prism_py` package has a dependency-free PNG codec, image metrics (MSE, PSNR
+and SSIM), an independent paraxial lens calculator and a denoiser benchmark. The
+calculator re-implements the Sellmeier glass model and the paraxial ray trace in
+Python, and the tests check that it agrees with the focal lengths and back focal
+distances printed by the Rust `prism analyze`, so each side validates the other.
+`prism-bench` renders a scene with the Rust tool at several sample counts, with
+and without `--denoise`, and scores every image against a high-sample reference.
+The results are in `docs/benchmarks.md`.
 ## Testing
 
 Correctness is checked against known physics, not just against itself. A glass

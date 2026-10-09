@@ -5,20 +5,24 @@ build-backend = "hatchling.build"
 [project]
 name = "prism-py"
 version = "0.1.0"
-description = "Denoiser training and analysis tools for Prism"
-requires-python = ">=3.11"
+description = "PNG codec, image metrics, an independent paraxial calculator and denoiser benchmarks for Prism"
+requires-python = ">=3.10"
 license = { text = "MIT" }
 dependencies = ["numpy>=1.26"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.11"]
 
+[project.scripts]
+prism-bench = "prism_py.bench:main"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/prism_py"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py310"
+src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "N"]
