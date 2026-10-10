@@ -1,6 +1,7 @@
 //! Text scene description files, one directive per line; `#` starts a comment.
 //!
 //! - `sky <horizon> <zenith>`: background radiance, default 1 and 1.
+//! - `atmosphere <sun elevation> [azimuth] [exposure]`: a physically based sky that replaces `sky`.
 //! - `camera <ex ey ez> <tx ty tz> <fov degrees>`: required; y is up.
 //! - `image <width> <height> <samples>`: default render settings.
 //! - `floor <half extent> <light> <dark>`: checkerboard of 1 by 1 tiles on y = 0.
@@ -15,6 +16,7 @@
 use std::collections::HashMap;
 use std::str::SplitWhitespace;
 
+use crate::atmosphere::Atmosphere;
 use crate::camera::Camera;
 use crate::error::{PrismError, Result};
 use crate::geometry::{Primitive, Sphere, Triangle};
@@ -220,6 +222,21 @@ fn parse_sky(line: &mut Line<'_>) -> Result<Sky> {
     Ok(Sky { horizon, zenith })
 }
 
+fn optional_number(line: &mut Line<'_>, what: &str, default: f64) -> Result<f64> {
+    if line.words.clone().next().is_some() {
+        line.number(what)
+    } else {
+        Ok(default)
+    }
+}
+
+fn parse_atmosphere(line: &mut Line<'_>) -> Result<Atmosphere> {
+    let elevation = line.number("sun elevation")?;
+    let azimuth = optional_number(line, "sun azimuth", 0.0)?;
+    let exposure = optional_number(line, "exposure", 1.0)?;
+    line.finish()?;
+    Atmosphere::new(elevation, azimuth, exposure).map_err(|e| line.error(e.to_string()))
+}
 fn parse_camera(line: &mut Line<'_>) -> Result<CameraSpec> {
     let eye = line.vec3("eye position")?;
     let target = line.vec3("target position")?;
@@ -367,6 +384,7 @@ impl SceneFile {
         let mut sky = Sky::uniform(1.0);
         let mut camera: Option<CameraSpec> = None;
         let mut image: Option<ImageSpec> = None;
+        let mut atmosphere: Option<Atmosphere> = None;
         let mut groups = Groups::default();
         let mut last_line = 1;
         for (index, raw) in text.lines().enumerate() {
@@ -381,6 +399,7 @@ impl SceneFile {
             };
             match directive {
                 "sky" => sky = parse_sky(&mut line)?,
+                "atmosphere" => atmosphere = Some(parse_atmosphere(&mut line)?),
                 "camera" => {
                     if camera.is_some() {
                         return Err(line.error("`camera` is defined twice"));
@@ -400,6 +419,7 @@ impl SceneFile {
             reason: "missing `camera` directive".to_owned(),
         })?;
         let mut scene = Scene::new(sky);
+        scene.atmosphere = atmosphere;
         for (material, prims) in groups.groups {
             scene.add_group(material, prims);
         }

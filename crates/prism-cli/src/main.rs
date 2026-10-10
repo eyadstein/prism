@@ -5,8 +5,10 @@ use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
 use prism_core::denoise::{denoise, DenoiseSettings};
+use prism_core::designer::{design_doublet, rank_pairs, PairScore};
 use prism_core::features::compute as compute_features;
 use prism_core::film::Image;
+use prism_core::glass::catalog;
 use prism_core::lens::{Lens, D_LINE_NM};
 use prism_core::lenscam::LensCamera;
 use prism_core::math::Vec3;
@@ -14,6 +16,9 @@ use prism_core::optimize::{optimize, rms_spot_radius, Outcome, Problem};
 use prism_core::render::{render, RenderSettings};
 use prism_core::report::lens_report;
 use prism_core::scenefile::SceneFile;
+
+const CROWN_THICKNESS_MM: f64 = 4.0;
+const FLINT_THICKNESS_MM: f64 = 2.5;
 
 #[derive(Parser)]
 #[command(
@@ -80,12 +85,35 @@ struct OptimizeArgs {
     out: Option<String>,
 }
 
+#[derive(Args)]
+struct DesignArgs {
+    /// Required effective focal length in millimetres.
+    #[arg(long, default_value_t = 100.0)]
+    efl: f64,
+    /// Semi-aperture of every surface in millimetres.
+    #[arg(long, default_value_t = 12.5)]
+    aperture: f64,
+    /// How many of the best glass pairs to list.
+    #[arg(long, default_value_t = 8)]
+    top: usize,
+    /// Largest allowed element power as a multiple of the total power.
+    #[arg(long, default_value_t = 4.0)]
+    max_power: f64,
+    /// Write the designed prescription to this file instead of printing it.
+    #[arg(short, long)]
+    out: Option<String>,
+}
+
 #[derive(Subcommand)]
 enum Command {
     /// Render a scene file to a PNG image.
     Render(RenderArgs),
     /// Optimize a lens prescription with damped least squares.
     Optimize(OptimizeArgs),
+    /// Search every crown and flint pair for the smallest secondary spectrum and build the doublet.
+    Design(DesignArgs),
+    /// List the glass catalogue with refractive index, Abbe number and partial dispersion.
+    Glasses,
     /// Analyze a lens prescription: focal length, spot sizes, distortion, field curvature, MTF.
     Analyze {
         /// Path to the lens prescription.
@@ -136,6 +164,8 @@ fn main() -> ExitCode {
         Command::Render(args) => run_render(&args),
         Command::Analyze { lens, pupil, field } => run_analyze(&lens, pupil, field),
         Command::Optimize(args) => run_optimize(&args),
+        Command::Design(args) => run_design(&args),
+        Command::Glasses => run_glasses(),
     }
 }
 
@@ -280,6 +310,91 @@ fn analyze(lens: &Lens, path: &str, pupil: f64, field: f64) -> ExitCode {
         eprintln!("{path}: lens has no finite focal length");
         ExitCode::FAILURE
     }
+}
+
+fn run_glasses() -> ExitCode {
+    println!("{:<14} {:>8} {:>8} {:>8}", "glass", "n_d", "V_d", "P_gF");
+    for glass in catalog() {
+        println!(
+            "{:<14} {:>8.4} {:>8.2} {:>8.4}",
+            glass.name,
+            glass.index(D_LINE_NM),
+            glass.abbe(),
+            glass.partial_dispersion()
+        );
+    }
+    ExitCode::SUCCESS
+}
+
+fn pair_row(rank: &str, pair: &PairScore, efl: f64) -> String {
+    format!(
+        "{rank:>4}  {:<9} {:<9} {:>6.1} {:>6.1} {:>10.3} {:>13.1} {:>6.2}",
+        pair.crown.name,
+        pair.flint.name,
+        pair.crown.abbe(),
+        pair.flint.abbe(),
+        pair.secondary * 100.0,
+        pair.focal_shift(efl).abs() * 1000.0,
+        pair.power_ratio()
+    )
+}
+
+fn run_design(args: &DesignArgs) -> ExitCode {
+    let ranked = rank_pairs(args.max_power);
+    let Some(best) = ranked.first().copied() else {
+        eprintln!("no glass pair satisfies --max-power {}", args.max_power);
+        return ExitCode::FAILURE;
+    };
+    println!(
+        "glass pairs ranked by secondary spectrum, focal length {} mm:",
+        args.efl
+    );
+    println!("rank  crown     flint        V1     V2  2nd spec %  g-F shift um  power");
+    for (index, pair) in ranked.iter().take(args.top).enumerate() {
+        println!("{}", pair_row(&(index + 1).to_string(), pair, args.efl));
+    }
+    if let Some(base) = ranked
+        .iter()
+        .find(|p| p.crown.name == "N-BK7" && p.flint.name == "F2")
+    {
+        println!("{}", pair_row("ref", base, args.efl));
+    }
+    let lens = match design_doublet(
+        best.crown,
+        best.flint,
+        args.efl,
+        args.aperture,
+        CROWN_THICKNESS_MM,
+        FLINT_THICKNESS_MM,
+    ) {
+        Ok(lens) => lens,
+        Err(e) => {
+            eprintln!("cannot build the best pair: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    println!(
+        "designed cemented doublet: {} (crown) + {} (flint)",
+        best.crown.name, best.flint.name
+    );
+    if let Some(text) = lens_report(&lens, "design", args.aperture * 0.8, 0.0) {
+        print!("{text}");
+    }
+    let text = lens.to_prescription();
+    if let Some(path) = &args.out {
+        return match write_file(path, text.as_bytes()) {
+            Ok(()) => {
+                println!("wrote {path}");
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("cannot write {path}: {e}");
+                ExitCode::FAILURE
+            }
+        };
+    }
+    print!("{text}");
+    ExitCode::SUCCESS
 }
 
 fn run_optimize(args: &OptimizeArgs) -> ExitCode {

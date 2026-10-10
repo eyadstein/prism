@@ -23,7 +23,7 @@ pub fn radiance(scene: &Scene, mut ray: Ray, nm: f64, rng: &mut Rng, max_depth: 
     let mut throughput = 1.0_f64;
     for depth in 0..max_depth {
         let Some((hit, material)) = scene.intersect(&ray, SURFACE_EPSILON, f64::INFINITY) else {
-            return throughput * scene.sky.radiance(ray.dir);
+            return throughput * scene.background(ray.dir, nm);
         };
         let dir = match material {
             Material::Diffuse { reflectance } => {

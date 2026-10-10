@@ -1,0 +1,10 @@
+# The same scene with the sun 4 degrees above the horizon: the glow around it turns orange and
+# the sky overhead darkens, because the long path through the air removes the blue light.
+atmosphere 4 -20 1.5
+camera 0 1.6 7  0 1.2 0  40
+image 640 360 96
+floor 8 0.8 0.05
+sphere 0 1 0 1 glass SF11
+sphere 2.3 0.55 1.0 0.55 glass DIAMOND
+sphere -2.2 0.7 0.8 0.7 glass N-BK7
+sphere -0.8 0.45 2.4 0.45 mirror 0.92

@@ -1,8 +1,10 @@
 import bubble from "../../../examples/bubble.scene?raw";
+import daylight from "../../../examples/daylight.scene?raw";
 import demo from "../../../examples/demo.scene?raw";
 import doublet from "../../../examples/doublet.lens?raw";
 import planoConvex from "../../../examples/plano-convex.lens?raw";
 import singlet from "../../../examples/singlet.lens?raw";
+import sunset from "../../../examples/sunset.scene?raw";
 
 export interface Preset {
   name: string;
@@ -21,4 +23,6 @@ export const LENS_PRESETS: Preset[] = [
 export const SCENE_PRESETS: Preset[] = [
   { name: "Glass spheres", text: demo },
   { name: "Soap bubbles", text: bubble },
+  { name: "Daylight (Rayleigh sky)", text: daylight },
+  { name: "Sunset", text: sunset },
 ];

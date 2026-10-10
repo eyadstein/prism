@@ -17,11 +17,13 @@
 )]
 
 pub mod analysis;
+pub mod atmosphere;
 pub mod bvh;
 pub mod camera;
 pub mod color;
 pub mod demo;
 pub mod denoise;
+pub mod designer;
 pub mod error;
 pub mod features;
 pub mod film;
@@ -41,6 +43,7 @@ pub mod scene;
 pub mod scenefile;
 pub mod thinfilm;
 
+pub use atmosphere::Atmosphere;
 pub use bvh::Bvh;
 pub use camera::Camera;
 pub use error::{PrismError, Result};

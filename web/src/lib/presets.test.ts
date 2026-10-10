@@ -10,7 +10,7 @@ describe("presets", () => {
       }
     }
     expect(LENS_PRESETS).toHaveLength(3);
-    expect(SCENE_PRESETS).toHaveLength(2);
+    expect(SCENE_PRESETS).toHaveLength(4);
   });
 
   it("lens presets name a glass and scene presets define a camera", () => {
@@ -20,6 +20,11 @@ describe("presets", () => {
     for (const preset of SCENE_PRESETS) {
       expect(preset.text).toContain("camera");
     }
+  });
+
+  it("the sky presets use the atmosphere directive", () => {
+    const sky = SCENE_PRESETS.filter((p) => p.text.includes("atmosphere "));
+    expect(sky.map((p) => p.name)).toEqual(["Daylight (Rayleigh sky)", "Sunset"]);
   });
 
   it("defaults come from the presets", () => {

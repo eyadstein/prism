@@ -1,5 +1,6 @@
 //! Scenes: a sky model plus one BVH per material.
 
+use crate::atmosphere::Atmosphere;
 use crate::bvh::Bvh;
 use crate::geometry::{Hit, Primitive};
 use crate::material::Material;
@@ -36,12 +37,14 @@ struct Group {
     bvh: Bvh,
 }
 
-/// Geometry grouped by material, lit by a [`Sky`].
+/// Geometry grouped by material, lit by a [`Sky`] or, when set, an [`Atmosphere`].
 #[derive(Clone, Debug)]
 pub struct Scene {
     groups: Vec<Group>,
-    /// Background illumination.
+    /// Background illumination used when there is no atmosphere.
     pub sky: Sky,
+    /// Physically based sky; when set it replaces `sky`.
+    pub atmosphere: Option<Atmosphere>,
 }
 
 impl Scene {
@@ -50,7 +53,15 @@ impl Scene {
         Self {
             groups: Vec::new(),
             sky,
+            atmosphere: None,
         }
+    }
+
+    /// Radiance of the background seen along `dir` at wavelength `nm`.
+    pub fn background(&self, dir: Vec3, nm: f64) -> f64 {
+        self.atmosphere
+            .as_ref()
+            .map_or_else(|| self.sky.radiance(dir), |a| a.radiance(dir, nm))
     }
 
     /// Adds many primitives that share one material and one BVH. Prefer this over
@@ -133,5 +144,13 @@ mod tests {
         assert_eq!(scene.primitive_count(), 0);
         let ray = Ray::new(Vec3::ZERO, Vec3::new(0.0, 0.0, -1.0));
         assert!(scene.intersect(&ray, 1e-6, f64::INFINITY).is_none());
+    }
+
+    #[test]
+    fn new_scenes_have_no_atmosphere() {
+        let scene = Scene::new(Sky::uniform(0.4));
+        assert!(scene.atmosphere.is_none());
+        let dir = Vec3::new(0.0, 1.0, 0.0);
+        assert!((scene.background(dir, 550.0) - 0.4).abs() < 1e-12);
     }
 }

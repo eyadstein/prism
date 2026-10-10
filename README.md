@@ -21,6 +21,8 @@ rendered with `prism demo`.
 | Lens optimizer (damped least squares) | done |
 | Distortion, field curvature, geometric MTF | done |
 | Thin-film interference (soap bubbles) | done |
+| Glass catalogue of 12 materials and an apochromat finder (secondary spectrum search) | done |
+| Spectral atmosphere (Rayleigh sky, sunset glow) | done |
 | Scene description files, OBJ meshes, `prism render` | done |
 | Edge-avoiding wavelet denoiser (guided by albedo, normal, depth) | done |
 | Python tools: PNG codec, image metrics, independent paraxial cross-check, denoiser benchmark | done |
@@ -58,7 +60,7 @@ XYZ, white balanced, and converted to sRGB.
 
 Engine modules: `math` (vectors, rays, boxes, seeded RNG), `geometry`, `bvh`,
 `color`, `glass`, `material`, `camera`, `scene`, `integrator`, `film`, `png`,
-`lens`, `analysis`, `optimize`, `obj`, `scenefile`, `thinfilm`, `report`, `features`, `denoise`, `lenscam`, `render`, `demo`.
+`lens`, `analysis`, `optimize`, `obj`, `scenefile`, `thinfilm`, `report`, `features`, `denoise`, `lenscam`, `designer`, `atmosphere`, `render`, `demo`.
 
 ## Scene files
 
@@ -72,7 +74,7 @@ One directive per line, `#` starts a comment, and y is up. Directives: `sky`,
 `camera` (required), `image`, `floor` (a checkerboard on y = 0), `sphere`,
 `triangle`, and `mesh` (a Wavefront OBJ file, found relative to the scene file).
 A material is `diffuse <r>`, `mirror <r>` or `glass <name>`, where the name is
-one of N-BK7, FUSED-SILICA, F2, SF11, SAPPHIRE, DIAMOND or WATER. A glass mesh
+one of the glasses listed by `prism glasses`. A glass mesh
 must be closed, with faces wound counter-clockwise as seen from outside.
 `thinfilm <index> <nm>` is an infinitely thin film such as a soap bubble wall.
 Its colour comes from multiple-beam interference, so it depends on the film
@@ -166,6 +168,38 @@ the sensor. The last surface of the prescription needs a finite aperture, and
 orientation, that rays retrace their path through the reversed lens, that the
 focus distance follows the thin lens equation, and that the focus control
 changes sharpness.
+## Glass catalogue and the apochromat finder
+
+    prism glasses
+    prism design --efl 100 --aperture 12.5 --out examples/apo-doublet.lens
+
+`prism glasses` lists the 12 built-in materials with their index, Abbe number and
+relative partial dispersion. A cemented doublet cancels the colour error between
+two wavelengths, but what is left is the secondary spectrum, and for ordinary
+crown and flint glasses it is about 0.17 percent of the focal length whatever pair
+you pick. Glasses far off the usual partial dispersion line, fluorite above all,
+do much better. `prism design` ranks every designable crown and flint pair by that
+secondary spectrum, then builds the cemented doublet from the best one, scales it to
+the exact focal length, focuses it and prints the full analysis. The tests check the
+predicted focal shift against a real paraxial trace of the designed lens, and that the
+best pair beats the classic N-BK7 and F2 doublet.
+
+## Atmosphere
+
+    atmosphere 42 25 1.0
+
+The directive takes the sun elevation in degrees, an optional azimuth (from -z towards
++x) and an optional exposure, and it replaces `sky`. The sky is computed one wavelength
+at a time from Rayleigh scattering of 5778 K sunlight (Planck's law), so the blue
+zenith, the paler horizon and the red sunset all come out of the physics. The model is
+single scattering in a plane-parallel slab with two deliberate simplifications that are
+documented in `crates/prism-core/src/atmosphere.rs`: an empirical term that reddens the
+sunlight on long paths, and a soft glow standing in for the sun disc, which a path
+tracer cannot sample directly.
+
+![Daylight](docs/daylight.png)
+
+![Sunset](docs/sunset.png)
 ## Denoising
 
 Low sample counts are noisy, partly because every sample also picks a random
