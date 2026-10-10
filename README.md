@@ -27,6 +27,7 @@ rendered with `prism demo`.
 | Learned denoiser (Python training) | planned |
 | WebAssembly API (render scene, analyze lens, optimize lens) | done |
 | Web lens and scene editor (Vite, React, engine in a Web Worker) | done |
+| Render through a real lens (depth of field, aberrations, vignetting, bokeh) | done |
 
 ## Quick start
 
@@ -57,7 +58,7 @@ XYZ, white balanced, and converted to sRGB.
 
 Engine modules: `math` (vectors, rays, boxes, seeded RNG), `geometry`, `bvh`,
 `color`, `glass`, `material`, `camera`, `scene`, `integrator`, `film`, `png`,
-`lens`, `analysis`, `optimize`, `obj`, `scenefile`, `thinfilm`, `report`, `features`, `denoise`, `render`, `demo`.
+`lens`, `analysis`, `optimize`, `obj`, `scenefile`, `thinfilm`, `report`, `features`, `denoise`, `lenscam`, `render`, `demo`.
 
 ## Scene files
 
@@ -143,6 +144,28 @@ files. All engine calls run in a Web Worker, so the page stays responsive.
 `web/src/wasm` holds the generated WebAssembly bindings and is committed, so CI
 and Docker builds need no wasm toolchain. Run `scripts/build-wasm.ps1` again after
 changing the exported functions in `crates/prism-wasm`.
+## Rendering through a lens
+
+    prism render examples/lens.scene --lens examples/doublet.lens --focus 5.5 --out docs/lens-camera.png
+
+![Rendered through a real lens](docs/lens-camera.png)
+
+With `--lens` the camera is no longer a pinhole. Each ray starts on a sensor
+behind the lens, aims at a random point of the lens's rear aperture, and is
+traced through every surface of the prescription at the wavelength of that
+sample. Depth of field, chromatic aberration, vignetting from blocked rays and
+out-of-focus highlights (bokeh) come out of the optics, and every ray is
+weighted by cos^4 of its angle to the axis, which gives the natural falloff
+towards the corners. Scene units are metres and the lens is in millimetres.
+
+`--focus` is the focus distance in metres (default 5), `--sensor-width` is in
+millimetres (default 36), and the `camera` line of the scene file gives only the
+position and direction, because the field of view now comes from the lens and
+the sensor. The last surface of the prescription needs a finite aperture, and
+`--denoise` cannot be combined with `--lens`. The tests check the image
+orientation, that rays retrace their path through the reversed lens, that the
+focus distance follows the thin lens equation, and that the focus control
+changes sharpness.
 ## Denoising
 
 Low sample counts are noisy, partly because every sample also picks a random

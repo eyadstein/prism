@@ -1,6 +1,6 @@
 //! Multi-threaded progressive-quality renderer.
 
-use crate::camera::Camera;
+use crate::camera::RaySource;
 use crate::color::{sample_wavelength, PixelAccumulator};
 use crate::film::{film_rgb, Image};
 use crate::integrator::radiance;
@@ -40,9 +40,9 @@ fn pixel_rng(seed: u64, index: usize) -> Rng {
     rng
 }
 
-fn render_pixel(
+fn render_pixel<C: RaySource>(
     scene: &Scene,
-    camera: &Camera,
+    camera: &C,
     settings: &RenderSettings,
     x: usize,
     y: usize,
@@ -55,7 +55,9 @@ fn render_pixel(
         let (nm, pdf) = sample_wavelength((f64::from(s) + rng.next_f64()) / spp);
         let px = (x as f64 + rng.next_f64()) / settings.width as f64;
         let py = 1.0 - (y as f64 + rng.next_f64()) / settings.height as f64;
-        let l = radiance(scene, camera.ray(px, py), nm, &mut rng, settings.max_depth);
+        let l = camera.sample(px, py, nm, &mut rng).map_or(0.0, |c| {
+            c.weight * radiance(scene, c.ray, nm, &mut rng, settings.max_depth)
+        });
         acc.add(nm, pdf, l);
     }
     film_rgb(acc.resolve())
@@ -72,14 +74,14 @@ fn default_threads() -> usize {
 
 /// Renders `scene` through `camera` using every available core.
 /// The result does not depend on the thread count.
-pub fn render(scene: &Scene, camera: &Camera, settings: &RenderSettings) -> Image {
+pub fn render<C: RaySource>(scene: &Scene, camera: &C, settings: &RenderSettings) -> Image {
     render_with_threads(scene, camera, settings, default_threads())
 }
 
 /// Renders with an explicit number of worker threads. One thread renders on the calling thread.
-pub fn render_with_threads(
+pub fn render_with_threads<C: RaySource>(
     scene: &Scene,
-    camera: &Camera,
+    camera: &C,
     settings: &RenderSettings,
     threads: usize,
 ) -> Image {
@@ -113,6 +115,7 @@ pub fn render_with_threads(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::camera::{Camera, CameraSample, RaySource};
     use crate::scene::Sky;
 
     fn camera() -> Camera {
@@ -123,6 +126,24 @@ mod tests {
             60.0,
             1.0,
         )
+    }
+
+    struct Blocked;
+
+    impl RaySource for Blocked {
+        fn sample(&self, _s: f64, _t: f64, _nm: f64, _rng: &mut Rng) -> Option<CameraSample> {
+            None
+        }
+    }
+
+    struct Dim(Camera);
+
+    impl RaySource for Dim {
+        fn sample(&self, s: f64, t: f64, nm: f64, rng: &mut Rng) -> Option<CameraSample> {
+            self.0
+                .sample(s, t, nm, rng)
+                .map(|c| CameraSample { weight: 0.5, ..c })
+        }
     }
 
     #[test]
@@ -189,5 +210,35 @@ mod tests {
             ..RenderSettings::default()
         };
         assert_eq!(render(&scene, &camera(), &settings).pixels.len(), 0);
+    }
+
+    #[test]
+    fn blocked_rays_render_black() {
+        let scene = Scene::new(Sky::uniform(1.0));
+        let settings = RenderSettings {
+            width: 4,
+            height: 4,
+            samples: 4,
+            max_depth: 4,
+            seed: 1,
+        };
+        let img = render(&scene, &Blocked, &settings);
+        assert!(img.pixels.iter().all(|p| *p == Vec3::ZERO));
+    }
+
+    #[test]
+    fn sample_weights_scale_the_image() {
+        let scene = Scene::new(Sky::uniform(1.0));
+        let settings = RenderSettings {
+            width: 6,
+            height: 6,
+            samples: 128,
+            max_depth: 4,
+            seed: 2,
+        };
+        let img = render(&scene, &Dim(camera()), &settings);
+        for p in &img.pixels {
+            assert!(p.near(Vec3::splat(0.5), 0.1), "{p:?}");
+        }
     }
 }

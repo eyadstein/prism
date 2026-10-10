@@ -1,6 +1,23 @@
-//! Pinhole camera.
+//! Cameras: the pinhole camera, and the trait the renderer uses to ask any camera for rays.
 
-use crate::math::{Ray, Vec3};
+use crate::math::{Ray, Rng, Vec3};
+
+/// A camera ray together with the factor that scales the radiance seen along it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CameraSample {
+    /// Ray into the scene.
+    pub ray: Ray,
+    /// Weight of the radiance seen along the ray; 1 for an ideal pinhole camera.
+    pub weight: f64,
+}
+
+/// Anything that turns a film position into rays for the renderer.
+pub trait RaySource: Sync {
+    /// Ray for the film point `(s, t)`, both in `[0, 1]` with `s` running left to right and
+    /// `t` bottom to top, at wavelength `nm` nanometres. `rng` supplies random numbers for
+    /// lens sampling. Returns `None` when the ray is blocked.
+    fn sample(&self, s: f64, t: f64, nm: f64, rng: &mut Rng) -> Option<CameraSample>;
+}
 
 /// A pinhole camera with a vertical field of view.
 #[derive(Clone, Copy, Debug)]
@@ -36,6 +53,15 @@ impl Camera {
     }
 }
 
+impl RaySource for Camera {
+    fn sample(&self, s: f64, t: f64, _nm: f64, _rng: &mut Rng) -> Option<CameraSample> {
+        Some(CameraSample {
+            ray: self.ray(s, t),
+            weight: 1.0,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -68,5 +94,16 @@ mod tests {
         assert!(cam.ray(0.0, 0.5).dir.x < 0.0);
         assert!(cam.ray(1.0, 0.5).dir.x > 0.0);
         assert!((cam.ray(0.3, 0.8).dir.length() - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn pinhole_samples_match_the_ray_method() {
+        let cam = Camera::new(Vec3::ZERO, Vec3::new(0.0, 0.0, -1.0), up(), 60.0, 1.5);
+        let mut rng = Rng::new(1);
+        let sample = cam
+            .sample(0.3, 0.8, 550.0, &mut rng)
+            .expect("pinhole rays are never blocked");
+        assert_eq!(sample.ray, cam.ray(0.3, 0.8));
+        assert!((sample.weight - 1.0).abs() < 1e-15);
     }
 }

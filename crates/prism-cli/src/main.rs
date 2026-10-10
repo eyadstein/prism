@@ -8,6 +8,8 @@ use prism_core::denoise::{denoise, DenoiseSettings};
 use prism_core::features::compute as compute_features;
 use prism_core::film::Image;
 use prism_core::lens::{Lens, D_LINE_NM};
+use prism_core::lenscam::LensCamera;
+use prism_core::math::Vec3;
 use prism_core::optimize::{optimize, rms_spot_radius, Outcome, Problem};
 use prism_core::render::{render, RenderSettings};
 use prism_core::report::lens_report;
@@ -43,6 +45,15 @@ struct RenderArgs {
     /// Filter the image with the edge-avoiding wavelet denoiser.
     #[arg(long)]
     denoise: bool,
+    /// Render through this lens prescription instead of a pinhole camera.
+    #[arg(long)]
+    lens: Option<String>,
+    /// Distance in scene units (metres) at which the lens is focused; used with --lens.
+    #[arg(long, default_value_t = 5.0)]
+    focus: f64,
+    /// Sensor width in millimetres; used with --lens.
+    #[arg(long, default_value_t = 36.0)]
+    sensor_width: f64,
 }
 
 #[derive(Args)]
@@ -75,7 +86,7 @@ enum Command {
     Render(RenderArgs),
     /// Optimize a lens prescription with damped least squares.
     Optimize(OptimizeArgs),
-    /// Analyze a lens prescription: focal length and RMS spot size at three wavelengths.
+    /// Analyze a lens prescription: focal length, spot sizes, distortion, field curvature, MTF.
     Analyze {
         /// Path to the lens prescription.
         lens: String,
@@ -168,6 +179,44 @@ fn run_demo(out: &str, width: usize, height: usize, samples: u32) -> ExitCode {
     save(out, &image, width, height, samples)
 }
 
+fn load_lens(path: &str) -> Result<Lens, String> {
+    let text = std::fs::read_to_string(path).map_err(|e| format!("cannot read {path}: {e}"))?;
+    Lens::parse(&text).map_err(|e| format!("{path}: {e}"))
+}
+
+fn render_image(
+    args: &RenderArgs,
+    file: &SceneFile,
+    settings: &RenderSettings,
+    aspect: f64,
+) -> Result<Image, String> {
+    if let Some(path) = &args.lens {
+        if args.denoise {
+            return Err("--denoise cannot be combined with --lens".to_owned());
+        }
+        let lens = load_lens(path)?;
+        let camera = LensCamera::new(
+            &lens,
+            file.camera.eye,
+            file.camera.target,
+            Vec3::new(0.0, 1.0, 0.0),
+            args.focus,
+            args.sensor_width,
+            aspect,
+        )
+        .map_err(|e| format!("lens camera: {e}"))?;
+        return Ok(render(&file.scene, &camera, settings));
+    }
+    let camera = file.camera.camera(aspect);
+    let image = render(&file.scene, &camera, settings);
+    if args.denoise {
+        let features = compute_features(&file.scene, &camera, settings.width, settings.height);
+        return denoise(&image, &features, &DenoiseSettings::default())
+            .map_err(|e| format!("denoising failed: {e}"));
+    }
+    Ok(image)
+}
+
 #[allow(clippy::cast_precision_loss)]
 fn run_render(args: &RenderArgs) -> ExitCode {
     let text = match std::fs::read_to_string(&args.scene) {
@@ -198,32 +247,19 @@ fn run_render(args: &RenderArgs) -> ExitCode {
         eprintln!("width, height and samples must be at least 1");
         return ExitCode::FAILURE;
     }
-    let camera = file.camera.camera(width as f64 / height as f64);
     let settings = RenderSettings {
         width,
         height,
         samples,
         ..RenderSettings::default()
     };
-    let image = render(&file.scene, &camera, &settings);
-    let image = if args.denoise {
-        let features = compute_features(&file.scene, &camera, width, height);
-        match denoise(&image, &features, &DenoiseSettings::default()) {
-            Ok(clean) => clean,
-            Err(e) => {
-                eprintln!("denoising failed: {e}");
-                return ExitCode::FAILURE;
-            }
+    match render_image(args, &file, &settings, width as f64 / height as f64) {
+        Ok(image) => save(&args.out, &image, width, height, samples),
+        Err(message) => {
+            eprintln!("{message}");
+            ExitCode::FAILURE
         }
-    } else {
-        image
-    };
-    save(&args.out, &image, width, height, samples)
-}
-
-fn load_lens(path: &str) -> Result<Lens, String> {
-    let text = std::fs::read_to_string(path).map_err(|e| format!("cannot read {path}: {e}"))?;
-    Lens::parse(&text).map_err(|e| format!("{path}: {e}"))
+    }
 }
 
 fn run_analyze(path: &str, pupil: f64, field: f64) -> ExitCode {

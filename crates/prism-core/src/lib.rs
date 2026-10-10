@@ -29,6 +29,7 @@ pub mod geometry;
 pub mod glass;
 pub mod integrator;
 pub mod lens;
+pub mod lenscam;
 pub mod material;
 pub mod math;
 pub mod obj;

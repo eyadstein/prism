@@ -348,6 +348,52 @@ impl Lens {
         points.push(ray.at(t));
         Ok(points)
     }
+    /// Distance from the last vertex to where light from an axial object point comes to a
+    /// paraxial focus. `object_distance` is measured from the first vertex; zero, negative or
+    /// infinite means an object at infinity. A negative result means the image is virtual.
+    /// Returns `None` when the light neither converges nor diverges.
+    pub fn image_distance(&self, nm: f64, object_distance: f64) -> Option<f64> {
+        let mut y = 1.0_f64;
+        let mut u = if object_distance.is_finite() && object_distance > 0.0 {
+            1.0 / object_distance
+        } else {
+            0.0
+        };
+        let mut n = 1.0_f64;
+        let mut y_last = y;
+        for s in &self.surfaces {
+            let n_next = s.index(nm);
+            u = (n * u - y * s.curvature() * (n_next - n)) / n_next;
+            y_last = y;
+            y += s.thickness * u;
+            n = n_next;
+        }
+        if u.abs() < 1e-15 {
+            return None;
+        }
+        Some(-y_last / u)
+    }
+
+    /// The same lens turned around, so light travels from the old image side to the old
+    /// object side. Assumes air behind the last surface. The new last surface gets
+    /// thickness zero.
+    pub fn reversed(&self) -> Self {
+        let n = self.surfaces.len();
+        let surfaces: Vec<Surface> = (0..n)
+            .map(|k| {
+                let old = n - 1 - k;
+                let s = &self.surfaces[old];
+                let before = old.checked_sub(1).map(|i| self.surfaces[i]);
+                Surface {
+                    radius: -s.radius,
+                    thickness: before.map_or(0.0, |b| b.thickness),
+                    glass: before.and_then(|b| b.glass),
+                    semi_aperture: s.semi_aperture,
+                }
+            })
+            .collect();
+        Self { surfaces }
+    }
     /// Traces a ray and returns where it crosses the image plane.
     pub fn trace_to_image(&self, incoming: Ray, nm: f64) -> core::result::Result<Vec3, RayFate> {
         let out = self.trace(incoming, nm)?;
@@ -550,6 +596,94 @@ mod tests {
         let tiny = Lens::new(vec![s(2.0, 5.0, Some(&BK7)), s(0.0, 5.0, None)]).expect("valid lens");
         let far = Ray::new(Vec3::new(5.0, 0.0, 0.0), Vec3::new(0.0, 0.0, 1.0));
         assert_eq!(tiny.trace_path(far, 550.0).err(), Some(RayFate::Missed));
+    }
+    #[test]
+    fn image_distance_at_infinity_is_the_back_focal_distance() {
+        let lens = plano_convex();
+        let bfd = lens.paraxial(D_LINE_NM).expect("finite focus").bfd;
+        let at_infinity = lens
+            .image_distance(D_LINE_NM, f64::INFINITY)
+            .expect("finite focus");
+        let at_zero = lens.image_distance(D_LINE_NM, 0.0).expect("finite focus");
+        assert!((at_infinity - bfd).abs() < 1e-9);
+        assert!((at_zero - bfd).abs() < 1e-9);
+    }
+
+    #[test]
+    fn nearer_objects_focus_farther_behind_the_lens() {
+        let lens = plano_convex();
+        let infinity = lens
+            .image_distance(D_LINE_NM, f64::INFINITY)
+            .expect("finite focus");
+        let far = lens.image_distance(D_LINE_NM, 10_000.0).expect("focus");
+        let near = lens.image_distance(D_LINE_NM, 500.0).expect("focus");
+        assert!(near > far, "near {near}, far {far}");
+        assert!(far > infinity, "far {far}, infinity {infinity}");
+    }
+
+    #[test]
+    fn image_distance_follows_the_thin_lens_equation() {
+        let thin = Lens::new(vec![s(100.0, 0.001, Some(&BK7)), s(-100.0, 90.0, None)])
+            .expect("valid lens");
+        let f = thin.paraxial(D_LINE_NM).expect("finite focus").efl;
+        let v = thin.image_distance(D_LINE_NM, 1000.0).expect("focus");
+        assert!((v - 1.0 / (1.0 / f - 1.0 / 1000.0)).abs() < 0.01, "v = {v}");
+    }
+
+    #[test]
+    fn reversing_twice_restores_the_lens() {
+        let lens = Lens::parse("44.78 4.0 N-BK7 12.5\n-44.78 2.5 F2 12.5\n-812 95.0 air 12.5\n")
+            .expect("valid lens");
+        let again = lens.reversed().reversed();
+        assert_eq!(again.surfaces().len(), 3);
+        for (a, b) in lens.surfaces().iter().zip(again.surfaces()) {
+            assert!((a.radius - b.radius).abs() < 1e-12);
+            assert_eq!(a.glass.map(|g| g.name), b.glass.map(|g| g.name));
+            assert!((a.semi_aperture - b.semi_aperture).abs() < 1e-12);
+        }
+        assert!((again.surfaces()[0].thickness - 4.0).abs() < 1e-12);
+        assert!((again.surfaces()[1].thickness - 2.5).abs() < 1e-12);
+    }
+
+    #[test]
+    fn reversed_lens_has_the_same_focal_length() {
+        let lens = Lens::parse("44.78 4.0 N-BK7 12.5\n-44.78 2.5 F2 12.5\n-812 95.0 air 12.5\n")
+            .expect("valid lens");
+        let a = lens.paraxial(D_LINE_NM).expect("finite focus");
+        let b = lens.reversed().paraxial(D_LINE_NM).expect("finite focus");
+        assert!((a.efl - b.efl).abs() < 1e-9, "{} and {}", a.efl, b.efl);
+    }
+
+    #[test]
+    fn rays_retrace_their_path_through_the_reversed_lens() {
+        let lens = Lens::parse("44.78 4.0 N-BK7 12.5\n-44.78 2.5 F2 12.5\n-812 95.0 air 12.5\n")
+            .expect("valid lens");
+        let incoming = Ray::new(Vec3::new(0.0, 6.0, -10.0), Vec3::new(0.0, 0.02, 1.0));
+        let path = lens.trace_path(incoming, 550.0).expect("ray passes");
+        let out = lens.trace(incoming, 550.0).expect("ray passes");
+        let z0: f64 = lens.surfaces()[..2].iter().map(|s| s.thickness).sum();
+        let back = Ray::new(
+            Vec3::new(out.origin.x, out.origin.y, z0 - out.origin.z),
+            Vec3::new(-out.dir.x, -out.dir.y, out.dir.z),
+        );
+        let returned = lens
+            .reversed()
+            .trace(back, 550.0)
+            .expect("the reversed ray passes");
+        let first = path[1];
+        assert!(
+            returned
+                .origin
+                .near(Vec3::new(first.x, first.y, z0 - first.z), 1e-6),
+            "{:?} versus {first:?}",
+            returned.origin
+        );
+        let d = incoming.dir.normalized();
+        assert!(
+            returned.dir.near(Vec3::new(-d.x, -d.y, d.z), 1e-9),
+            "{:?} versus {d:?}",
+            returned.dir
+        );
     }
     #[test]
     fn image_distance_can_be_changed() {

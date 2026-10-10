@@ -1,0 +1,13 @@
+# Rendered through a real lens:
+#   prism render examples/lens.scene --lens examples/doublet.lens --focus 5.5 --out docs/lens-camera.png
+# The camera line gives only the position and direction. The field of view comes from the
+# lens and the sensor. Scene units are metres.
+sky 1.0 0.45
+camera 0 0.7 5.5  0 0.5 0  38
+image 640 360 96
+floor 8 0.85 0.04
+sphere 0 0.5 0 0.5 glass SF11
+sphere -0.75 0.3 -2.5 0.3 glass DIAMOND
+sphere 0.8 0.35 -1.5 0.35 mirror 0.92
+sphere 0.15 0.62 3.5 0.1 thinfilm 1.33 280
+sphere -0.7 0.7 1.0 0.22 thinfilm 1.33 450
