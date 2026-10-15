@@ -30,6 +30,7 @@ rendered with `prism demo`.
 | SVG lens cross-section drawings (prism draw) | done |
 | Diffraction-corrected through-focus MTF, best focus and depth of focus | done |
 | Glass substitution scan with a fair optimized baseline | done |
+| Zernike wavefront analysis (optical path difference, RMS wavefront error, Strehl ratio) | done |
 | Learned denoiser (Python training) | planned |
 | WebAssembly API (render scene, analyze lens, optimize lens) | done |
 | Web lens and scene editor (Vite, React, engine in a Web Worker) | done |
@@ -64,7 +65,7 @@ XYZ, white balanced, and converted to sRGB.
 
 Engine modules: `math` (vectors, rays, boxes, seeded RNG), `geometry`, `bvh`,
 `color`, `glass`, `material`, `camera`, `scene`, `integrator`, `film`, `png`,
-`lens`, `analysis`, `optimize`, `obj`, `scenefile`, `thinfilm`, `report`, `features`, `denoise`, `lenscam`, `designer`, `atmosphere`, `svg`, `tolerance`, `diffraction`, `substitute`, `render`, `demo`.
+`lens`, `analysis`, `optimize`, `obj`, `scenefile`, `thinfilm`, `report`, `features`, `denoise`, `lenscam`, `designer`, `atmosphere`, `svg`, `tolerance`, `diffraction`, `substitute`, `zernike`, `wavefront`, `render`, `demo`.
 
 ## Scene files
 
@@ -262,6 +263,23 @@ optimized with the same budget first, so a swap only looks good when the glass i
 is better and not because the starting design was left unoptimized. Water and diamond
 are excluded, and swaps whose new lens has no usable focus are counted and reported as
 skipped.
+## Wavefront analysis
+
+    prism wavefront examples/plano-convex.lens --pupil 5 --nm 550
+
+`prism wavefront` traces a grid of rays across the entrance pupil and computes the
+optical path length of each one, which is the sum of index times distance over every
+medium. The lengths are measured up to a reference sphere centred on the chief ray's
+image point, so a ray on a perfect spherical wavefront has the same path length as
+the chief ray, and the difference is the wave aberration in waves. That map is fitted
+with orthonormal Zernike polynomials in Noll order (piston, tilt, defocus,
+astigmatism, coma, trefoil, spherical and higher). Because the terms are orthonormal,
+the RMS wavefront error is the square root of the sum of the squared coefficients, and
+the Strehl ratio follows from the Marechal approximation exp(-(2 pi sigma)^2), which is
+accurate below about 0.1 wave. The tests check the path length against hand
+calculations and Fermat's principle, that spherical aberration scales as the fourth
+power of the pupil radius, and that moving the image plane changes the defocus
+coefficient by exactly the geometric amount.
 ## Denoising
 
 Low sample counts are noisy, partly because every sample also picks a random

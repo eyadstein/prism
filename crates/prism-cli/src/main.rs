@@ -23,6 +23,8 @@ use prism_core::scenefile::SceneFile;
 use prism_core::substitute::scan as scan_glasses;
 use prism_core::svg::lens_svg;
 use prism_core::tolerance::{loosest_scale, monte_carlo, Tolerances, MAX_SCALE};
+use prism_core::wavefront::{wavefront, WavefrontSettings};
+use prism_core::zernike;
 
 const CROWN_THICKNESS_MM: f64 = 4.0;
 const FLINT_THICKNESS_MM: f64 = 2.5;
@@ -193,6 +195,26 @@ struct SubstituteArgs {
     #[arg(long, default_value_t = 10)]
     top: usize,
 }
+#[derive(Args)]
+struct WavefrontArgs {
+    /// Path to the lens prescription.
+    lens: String,
+    /// Wavelength in nanometres.
+    #[arg(long, default_value_t = 550.0)]
+    nm: f64,
+    /// Field angle in degrees.
+    #[arg(long, default_value_t = 0.0)]
+    field: f64,
+    /// Entrance pupil radius in millimetres.
+    #[arg(long, default_value_t = 5.0)]
+    pupil: f64,
+    /// Grid cells across the pupil diameter (4 to 128).
+    #[arg(long, default_value_t = 32)]
+    grid: usize,
+    /// Number of Zernike terms to fit (1 to 28).
+    #[arg(long, default_value_t = 15)]
+    terms: usize,
+}
 #[derive(Subcommand)]
 enum Command {
     /// Render a scene file to a PNG image.
@@ -211,6 +233,8 @@ enum Command {
     Focus(FocusArgs),
     /// Try every other glass in every glass slot, re-optimize, and rank the results.
     Substitute(SubstituteArgs),
+    /// Wave aberration: path difference across the pupil, Zernike coefficients, RMS and Strehl ratio.
+    Wavefront(WavefrontArgs),
     /// Analyze a lens prescription: focal length, spot sizes, distortion, field curvature, MTF.
     Analyze {
         /// Path to the lens prescription.
@@ -267,6 +291,7 @@ fn main() -> ExitCode {
         Command::Draw(args) => run_draw(&args),
         Command::Focus(args) => run_focus(&args),
         Command::Substitute(args) => run_substitute(&args),
+        Command::Wavefront(args) => run_wavefront(&args),
     }
 }
 
@@ -630,6 +655,58 @@ fn run_substitute(args: &SubstituteArgs) -> ExitCode {
             result.skipped
         );
     }
+    ExitCode::SUCCESS
+}
+fn run_wavefront(args: &WavefrontArgs) -> ExitCode {
+    let lens = match load_lens(&args.lens) {
+        Ok(lens) => lens,
+        Err(message) => {
+            eprintln!("{message}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let Some(focus) = lens.paraxial(D_LINE_NM) else {
+        eprintln!("{}: lens has no finite focal length", args.lens);
+        return ExitCode::FAILURE;
+    };
+    let focused = lens.with_image_distance(focus.bfd);
+    let settings = WavefrontSettings {
+        nm: args.nm,
+        field_deg: args.field,
+        pupil_radius: args.pupil,
+        grid: args.grid,
+        terms: args.terms,
+    };
+    let result = match wavefront(&focused, &settings) {
+        Ok(result) => result,
+        Err(e) => {
+            eprintln!("wavefront analysis failed: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    println!(
+        "{}: wavefront at {} nm, field {} deg, pupil radius {} mm, image plane at the d-line paraxial focus",
+        args.lens, args.nm, args.field, args.pupil
+    );
+    println!(
+        "rays traced: {} of {}; RMS wavefront error {:.4} waves (piston removed), peak-to-valley {:.4} waves",
+        result.samples(),
+        result.launched,
+        result.rms_direct(),
+        result.peak_to_valley()
+    );
+    println!("Zernike coefficients (waves RMS, Noll order):");
+    println!("  term  name                      coefficient");
+    for (index, c) in result.coefficients.iter().enumerate() {
+        let term = index + 1;
+        let name = zernike::name(term);
+        println!("  {term:>4}  {name:<24} {c:>+11.5}");
+    }
+    println!(
+        "RMS excluding piston and tilt {:.4} waves; Strehl ratio (Marechal approximation) {:.3}",
+        result.rms_fit(true),
+        result.strehl()
+    );
     ExitCode::SUCCESS
 }
 fn run_glasses() -> ExitCode {

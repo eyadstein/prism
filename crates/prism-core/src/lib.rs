@@ -46,6 +46,8 @@ pub mod substitute;
 pub mod svg;
 pub mod thinfilm;
 pub mod tolerance;
+pub mod wavefront;
+pub mod zernike;
 
 pub use atmosphere::Atmosphere;
 pub use bvh::Bvh;

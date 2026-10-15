@@ -394,6 +394,31 @@ impl Lens {
             .collect();
         Self { surfaces }
     }
+    /// Traces a ray like [`Lens::trace`] and also returns the optical path length, in millimetres,
+    /// from the ray's starting point to its intersection with the last surface. The result is
+    /// meaningful when the start lies in front of the first surface.
+    pub fn trace_opl(&self, incoming: Ray, nm: f64) -> core::result::Result<(Ray, f64), RayFate> {
+        let mut ray = Ray::new(incoming.origin, incoming.dir.normalized());
+        let mut n = 1.0_f64;
+        let mut vertex_z = 0.0_f64;
+        let mut opl = 0.0_f64;
+        for s in &self.surfaces {
+            let (point, normal) = s.intersect(&ray, vertex_z).ok_or(RayFate::Missed)?;
+            if point.x.hypot(point.y) > s.semi_aperture {
+                return Err(RayFate::Vignetted);
+            }
+            opl += n * (point - ray.origin).length();
+            let n_next = s.index(nm);
+            let dir = ray
+                .dir
+                .refract(normal, n / n_next)
+                .ok_or(RayFate::TotalInternalReflection)?;
+            ray = Ray::new(point, dir);
+            n = n_next;
+            vertex_z += s.thickness;
+        }
+        Ok((ray, opl))
+    }
     /// Traces a ray and returns where it crosses the image plane.
     pub fn trace_to_image(&self, incoming: Ray, nm: f64) -> core::result::Result<Vec3, RayFate> {
         let out = self.trace(incoming, nm)?;
@@ -684,6 +709,33 @@ mod tests {
             "{:?} versus {d:?}",
             returned.dir
         );
+    }
+    #[test]
+    fn opl_of_an_axial_ray_matches_the_hand_computed_value() {
+        let lens = plano_convex();
+        let start = Ray::new(Vec3::new(0.0, 0.0, -10.0), Vec3::new(0.0, 0.0, 1.0));
+        let (exit, opl) = lens.trace_opl(start, 550.0).expect("ray passes");
+        let n = BK7.index(550.0);
+        assert!((opl - (10.0 + 5.0 * n)).abs() < 1e-9, "opl = {opl}");
+        assert!((exit.origin.z - 5.0).abs() < 1e-9);
+        assert!((exit.dir.z - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn rays_near_the_axis_have_equal_optical_path_to_the_focus() {
+        let lens = plano_convex();
+        let bfd = lens.paraxial(D_LINE_NM).expect("finite focus").bfd;
+        let lens = lens.with_image_distance(bfd);
+        let focus = Vec3::new(0.0, 0.0, 5.0 + bfd);
+        let total = |height: f64| {
+            let ray = Ray::new(Vec3::new(0.0, height, -10.0), Vec3::new(0.0, 0.0, 1.0));
+            let (exit, opl) = lens.trace_opl(ray, D_LINE_NM).expect("ray passes");
+            opl + (focus - exit.origin).length()
+        };
+        let reference = total(0.0);
+        for height in [0.2, 0.5, -0.5] {
+            assert!((total(height) - reference).abs() < 1e-6, "height {height}");
+        }
     }
     #[test]
     fn image_distance_can_be_changed() {
