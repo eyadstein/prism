@@ -6,6 +6,10 @@ use std::process::ExitCode;
 use clap::{Args, Parser, Subcommand};
 use prism_core::denoise::{denoise, DenoiseSettings};
 use prism_core::designer::{design_doublet, rank_pairs, PairScore};
+use prism_core::diffraction::{
+    airy_radius_um, best_focus, cutoff_frequency, depth_of_focus, f_number, through_focus,
+    FocusSettings,
+};
 use prism_core::features::compute as compute_features;
 use prism_core::film::Image;
 use prism_core::glass::catalog;
@@ -16,6 +20,7 @@ use prism_core::optimize::{optimize, rms_spot_radius, Outcome, Problem};
 use prism_core::render::{render, RenderSettings};
 use prism_core::report::lens_report;
 use prism_core::scenefile::SceneFile;
+use prism_core::substitute::scan as scan_glasses;
 use prism_core::svg::lens_svg;
 use prism_core::tolerance::{loosest_scale, monte_carlo, Tolerances, MAX_SCALE};
 
@@ -150,6 +155,44 @@ struct DrawArgs {
     #[arg(long, default_value_t = 0.0)]
     field: f64,
 }
+#[derive(Args)]
+struct FocusArgs {
+    /// Path to the lens prescription.
+    lens: String,
+    /// Entrance pupil radius in millimetres.
+    #[arg(long, default_value_t = 5.0)]
+    pupil: f64,
+    /// Field angle in degrees.
+    #[arg(long, default_value_t = 0.0)]
+    field: f64,
+    /// Spatial frequency in cycles per millimetre.
+    #[arg(long, default_value_t = 20.0)]
+    freq: f64,
+    /// Wavelength in nanometres.
+    #[arg(long, default_value_t = 550.0)]
+    nm: f64,
+    /// Largest shift from the paraxial focus to scan on each side, in millimetres.
+    #[arg(long, default_value_t = 2.0)]
+    range: f64,
+    /// Number of intervals between the two ends of the scan.
+    #[arg(long, default_value_t = 20)]
+    steps: usize,
+}
+
+#[derive(Args)]
+struct SubstituteArgs {
+    /// Path to the lens prescription.
+    lens: String,
+    /// Entrance pupil radius in millimetres.
+    #[arg(long, default_value_t = 5.0)]
+    pupil: f64,
+    /// Optimizer iterations for every candidate (1 to 100).
+    #[arg(long, default_value_t = 30)]
+    iterations: usize,
+    /// How many of the best swaps to list.
+    #[arg(long, default_value_t = 10)]
+    top: usize,
+}
 #[derive(Subcommand)]
 enum Command {
     /// Render a scene file to a PNG image.
@@ -164,6 +207,10 @@ enum Command {
     Tolerance(ToleranceArgs),
     /// Draw a lens cross-section with traced rays as an SVG file.
     Draw(DrawArgs),
+    /// Through-focus MTF with diffraction, best focus and depth of focus.
+    Focus(FocusArgs),
+    /// Try every other glass in every glass slot, re-optimize, and rank the results.
+    Substitute(SubstituteArgs),
     /// Analyze a lens prescription: focal length, spot sizes, distortion, field curvature, MTF.
     Analyze {
         /// Path to the lens prescription.
@@ -218,6 +265,8 @@ fn main() -> ExitCode {
         Command::Glasses => run_glasses(),
         Command::Tolerance(args) => run_tolerance(&args),
         Command::Draw(args) => run_draw(&args),
+        Command::Focus(args) => run_focus(&args),
+        Command::Substitute(args) => run_substitute(&args),
     }
 }
 
@@ -468,6 +517,120 @@ fn run_draw(args: &DrawArgs) -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn run_focus(args: &FocusArgs) -> ExitCode {
+    let lens = match load_lens(&args.lens) {
+        Ok(lens) => lens,
+        Err(message) => {
+            eprintln!("{message}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let Some(focus) = lens.paraxial(D_LINE_NM) else {
+        eprintln!("{}: lens has no finite focal length", args.lens);
+        return ExitCode::FAILURE;
+    };
+    let Some(number) = f_number(focus.efl, args.pupil) else {
+        eprintln!("--pupil must be a positive number");
+        return ExitCode::FAILURE;
+    };
+    let settings = FocusSettings {
+        nm: args.nm,
+        field_deg: args.field,
+        pupil_radius: args.pupil,
+        cycles_per_mm: args.freq,
+        range: args.range,
+        steps: args.steps,
+    };
+    let points = match through_focus(&lens, &settings) {
+        Ok(points) => points,
+        Err(e) => {
+            eprintln!("through-focus scan failed: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    println!(
+        "{}: EFL {:.3} mm, working f/{number:.2}, pupil radius {} mm",
+        args.lens, focus.efl, args.pupil
+    );
+    println!(
+        "at {} nm: Airy disc radius {:.2} um, diffraction cutoff {:.0} cycles/mm",
+        args.nm,
+        airy_radius_um(args.nm, number),
+        cutoff_frequency(args.nm, number)
+    );
+    println!(
+        "through-focus MTF at {} cycles/mm, field {} deg (shift is from the d-line paraxial focus)",
+        args.freq, args.field
+    );
+    println!("  shift mm  geometric  combined");
+    for p in &points {
+        let bar = "#".repeat((p.combined.clamp(0.0, 1.0) * 40.0).round() as usize);
+        println!(
+            "  {:>+8.3}  {:>9.3}  {:>8.3}  {bar}",
+            p.shift, p.geometric, p.combined
+        );
+    }
+    if let Some(best) = best_focus(&points) {
+        println!(
+            "best focus {:+.3} mm from the paraxial focus: combined MTF {:.3} (geometric {:.3})",
+            best.shift, best.combined, best.geometric
+        );
+    }
+    if let Some((low, high)) = depth_of_focus(&points, 0.5) {
+        println!(
+            "depth of focus (combined MTF at least half its peak, clipped to the scan): {low:+.3} to {high:+.3} mm, width {:.3} mm",
+            high - low
+        );
+    }
+    ExitCode::SUCCESS
+}
+
+fn run_substitute(args: &SubstituteArgs) -> ExitCode {
+    let lens = match load_lens(&args.lens) {
+        Ok(lens) => lens,
+        Err(message) => {
+            eprintln!("{message}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let result = match scan_glasses(&lens, args.pupil, args.iterations) {
+        Ok(result) => result,
+        Err(e) => {
+            eprintln!("glass scan failed: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    println!(
+        "{}: baseline (original glasses, same optimization budget): RMS spot radius {:.2} um, EFL {:.3} mm",
+        args.lens,
+        result.baseline_rms * 1000.0,
+        result.baseline_efl
+    );
+    println!("surface  from      to        RMS um   EFL mm   vs baseline");
+    for swap in result.swaps.iter().take(args.top) {
+        let change = if result.baseline_rms > 0.0 {
+            (swap.rms / result.baseline_rms - 1.0) * 100.0
+        } else {
+            0.0
+        };
+        println!(
+            "{:>7}  {:<8}  {:<8} {:>7.2} {:>8.3} {change:>+10.1} %",
+            swap.surface,
+            swap.from,
+            swap.to,
+            swap.rms * 1000.0,
+            swap.efl
+        );
+    }
+    if result.skipped > 0 {
+        println!(
+            "{} swaps could not be evaluated (no usable focus).",
+            result.skipped
+        );
+    }
+    ExitCode::SUCCESS
 }
 fn run_glasses() -> ExitCode {
     println!("{:<14} {:>8} {:>8} {:>8}", "glass", "n_d", "V_d", "P_gF");

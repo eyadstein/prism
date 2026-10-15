@@ -28,6 +28,8 @@ rendered with `prism demo`.
 | Python tools: PNG codec, image metrics, independent paraxial cross-check, denoiser benchmark | done |
 | Monte Carlo tolerance analysis and an inverse tolerance budget | done |
 | SVG lens cross-section drawings (prism draw) | done |
+| Diffraction-corrected through-focus MTF, best focus and depth of focus | done |
+| Glass substitution scan with a fair optimized baseline | done |
 | Learned denoiser (Python training) | planned |
 | WebAssembly API (render scene, analyze lens, optimize lens) | done |
 | Web lens and scene editor (Vite, React, engine in a Web Worker) | done |
@@ -62,7 +64,7 @@ XYZ, white balanced, and converted to sRGB.
 
 Engine modules: `math` (vectors, rays, boxes, seeded RNG), `geometry`, `bvh`,
 `color`, `glass`, `material`, `camera`, `scene`, `integrator`, `film`, `png`,
-`lens`, `analysis`, `optimize`, `obj`, `scenefile`, `thinfilm`, `report`, `features`, `denoise`, `lenscam`, `designer`, `atmosphere`, `svg`, `tolerance`, `render`, `demo`.
+`lens`, `analysis`, `optimize`, `obj`, `scenefile`, `thinfilm`, `report`, `features`, `denoise`, `lenscam`, `designer`, `atmosphere`, `svg`, `tolerance`, `diffraction`, `substitute`, `render`, `demo`.
 
 ## Scene files
 
@@ -232,6 +234,34 @@ one set of random draws and scales them, so the yield changes smoothly with the
 scale and the search can bisect. Lenses with no usable focus count as failures. The
 tolerances model radii and thicknesses only; decentre, tilt and index errors are not
 modelled.
+## Through-focus MTF and diffraction
+
+    prism focus examples/plano-convex.lens --freq 10 --range 3 --steps 12
+
+Geometric ray tracing ignores diffraction, so its MTF is too optimistic for small
+apertures. `prism focus` multiplies the geometric MTF of the traced spot by the exact
+diffraction-limited MTF of a circular aperture, `(2/pi)(acos x - x sqrt(1 - x^2))` with
+x the frequency divided by the cutoff `1 / (wavelength * f-number)`. It prints the
+working f-number, the Airy disc radius, a through-focus table with a bar chart, the
+best focus and the depth of focus (the shifts over which the combined MTF stays at least
+half its peak, clipped to the scanned range). The product of the two MTFs is the usual
+first estimate: it treats the blurs as independent, so it is accurate for small
+aberrations and somewhat pessimistic for large ones. The tests check the formula
+against hand-computed values, that the MTF only falls with frequency, and that a
+small-aperture lens lands on the diffraction limit.
+
+## Glass substitution scan
+
+    prism substitute examples/doublet.lens --iterations 30 --top 10
+
+For every glass slot of a lens, `prism substitute` tries every other catalogue glass,
+re-optimizes the curvatures and the image distance with the focal length held, and
+ranks the results by polychromatic RMS spot radius. Glass substitution exists in
+commercial design tools. The careful part is the baseline: the original lens is
+optimized with the same budget first, so a swap only looks good when the glass itself
+is better and not because the starting design was left unoptimized. Water and diamond
+are excluded, and swaps whose new lens has no usable focus are counted and reported as
+skipped.
 ## Denoising
 
 Low sample counts are noisy, partly because every sample also picks a random
