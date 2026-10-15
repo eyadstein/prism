@@ -41,7 +41,9 @@ pub mod render;
 pub mod report;
 pub mod scene;
 pub mod scenefile;
+pub mod svg;
 pub mod thinfilm;
+pub mod tolerance;
 
 pub use atmosphere::Atmosphere;
 pub use bvh::Bvh;

@@ -26,6 +26,8 @@ rendered with `prism demo`.
 | Scene description files, OBJ meshes, `prism render` | done |
 | Edge-avoiding wavelet denoiser (guided by albedo, normal, depth) | done |
 | Python tools: PNG codec, image metrics, independent paraxial cross-check, denoiser benchmark | done |
+| Monte Carlo tolerance analysis and an inverse tolerance budget | done |
+| SVG lens cross-section drawings (prism draw) | done |
 | Learned denoiser (Python training) | planned |
 | WebAssembly API (render scene, analyze lens, optimize lens) | done |
 | Web lens and scene editor (Vite, React, engine in a Web Worker) | done |
@@ -60,7 +62,7 @@ XYZ, white balanced, and converted to sRGB.
 
 Engine modules: `math` (vectors, rays, boxes, seeded RNG), `geometry`, `bvh`,
 `color`, `glass`, `material`, `camera`, `scene`, `integrator`, `film`, `png`,
-`lens`, `analysis`, `optimize`, `obj`, `scenefile`, `thinfilm`, `report`, `features`, `denoise`, `lenscam`, `designer`, `atmosphere`, `render`, `demo`.
+`lens`, `analysis`, `optimize`, `obj`, `scenefile`, `thinfilm`, `report`, `features`, `denoise`, `lenscam`, `designer`, `atmosphere`, `svg`, `tolerance`, `render`, `demo`.
 
 ## Scene files
 
@@ -200,6 +202,36 @@ tracer cannot sample directly.
 ![Daylight](docs/daylight.png)
 
 ![Sunset](docs/sunset.png)
+## Lens drawings
+
+    prism draw examples/doublet.lens --out docs/doublet.svg
+
+![Achromatic doublet](docs/doublet.svg)
+
+`prism draw` writes an SVG cross-section with rays traced through the real lens at
+450, 550 and 650 nm, focused at the d-line paraxial focus, so the colours missing the
+focus by different amounts are the chromatic aberration. Options: `--rays`, `--pupil`
+and `--field`.
+
+![Plano-convex singlet](docs/plano-convex.svg)
+
+## Tolerance analysis
+
+    prism tolerance examples/doublet.lens --radius-percent 0.2 --thickness 0.05 --spec-um 4 --yield 0.9
+
+Real lenses are never made exactly to the prescription. `prism tolerance` builds
+random lenses whose radii and thicknesses are off by a uniform random amount,
+refocuses each one (the back focal distance is the compensator, as at assembly),
+measures the polychromatic RMS spot radius, and prints the median, the 90th
+percentile, the worst case and the yield against a spot-size limit.
+
+It also runs the study in reverse, which is the part commercial tools leave to the
+designer. The tolerance budget finds the loosest radius and thickness tolerances for
+which at least the requested fraction of lenses still meets the limit. It reuses
+one set of random draws and scales them, so the yield changes smoothly with the
+scale and the search can bisect. Lenses with no usable focus count as failures. The
+tolerances model radii and thicknesses only; decentre, tilt and index errors are not
+modelled.
 ## Denoising
 
 Low sample counts are noisy, partly because every sample also picks a random

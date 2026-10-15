@@ -16,6 +16,8 @@ use prism_core::optimize::{optimize, rms_spot_radius, Outcome, Problem};
 use prism_core::render::{render, RenderSettings};
 use prism_core::report::lens_report;
 use prism_core::scenefile::SceneFile;
+use prism_core::svg::lens_svg;
+use prism_core::tolerance::{loosest_scale, monte_carlo, Tolerances, MAX_SCALE};
 
 const CROWN_THICKNESS_MM: f64 = 4.0;
 const FLINT_THICKNESS_MM: f64 = 2.5;
@@ -104,6 +106,50 @@ struct DesignArgs {
     out: Option<String>,
 }
 
+#[derive(Args)]
+struct ToleranceArgs {
+    /// Path to the lens prescription.
+    lens: String,
+    /// Tolerance on every curved radius, in percent.
+    #[arg(long, default_value_t = 0.2)]
+    radius_percent: f64,
+    /// Tolerance on every thickness, in millimetres.
+    #[arg(long, default_value_t = 0.05)]
+    thickness: f64,
+    /// Number of random lenses to build.
+    #[arg(long, default_value_t = 200)]
+    trials: usize,
+    /// Entrance pupil radius.
+    #[arg(long, default_value_t = 5.0)]
+    pupil: f64,
+    /// RMS spot radius limit in micrometres (default: twice the nominal design).
+    #[arg(long)]
+    spec_um: Option<f64>,
+    /// Fraction of lenses that must meet the limit, above 0 and at most 1.
+    #[arg(long = "yield", default_value_t = 0.9)]
+    target_yield: f64,
+    /// Seed of the random number generator.
+    #[arg(long, default_value_t = 1)]
+    seed: u64,
+}
+
+#[derive(Args)]
+struct DrawArgs {
+    /// Path to the lens prescription.
+    lens: String,
+    /// Output SVG file.
+    #[arg(short, long, default_value = "docs/lens.svg")]
+    out: String,
+    /// Rays per wavelength across the pupil (1 to 101).
+    #[arg(long, default_value_t = 11)]
+    rays: usize,
+    /// Entrance pupil radius.
+    #[arg(long, default_value_t = 5.0)]
+    pupil: f64,
+    /// Field angle in degrees.
+    #[arg(long, default_value_t = 0.0)]
+    field: f64,
+}
 #[derive(Subcommand)]
 enum Command {
     /// Render a scene file to a PNG image.
@@ -114,6 +160,10 @@ enum Command {
     Design(DesignArgs),
     /// List the glass catalogue with refractive index, Abbe number and partial dispersion.
     Glasses,
+    /// Monte Carlo tolerance study and the loosest tolerances that meet a spot-size limit.
+    Tolerance(ToleranceArgs),
+    /// Draw a lens cross-section with traced rays as an SVG file.
+    Draw(DrawArgs),
     /// Analyze a lens prescription: focal length, spot sizes, distortion, field curvature, MTF.
     Analyze {
         /// Path to the lens prescription.
@@ -166,6 +216,8 @@ fn main() -> ExitCode {
         Command::Optimize(args) => run_optimize(&args),
         Command::Design(args) => run_design(&args),
         Command::Glasses => run_glasses(),
+        Command::Tolerance(args) => run_tolerance(&args),
+        Command::Draw(args) => run_draw(&args),
     }
 }
 
@@ -312,6 +364,111 @@ fn analyze(lens: &Lens, path: &str, pupil: f64, field: f64) -> ExitCode {
     }
 }
 
+fn run_tolerance(args: &ToleranceArgs) -> ExitCode {
+    let lens = match load_lens(&args.lens) {
+        Ok(lens) => lens,
+        Err(message) => {
+            eprintln!("{message}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let Some(start) = lens.paraxial(D_LINE_NM) else {
+        eprintln!("{}: lens has no finite focal length", args.lens);
+        return ExitCode::FAILURE;
+    };
+    let mut problem = Problem::new(lens, Vec::new(), start.efl);
+    problem.pupil_radius = args.pupil;
+    let tol = Tolerances {
+        radius_fraction: args.radius_percent / 100.0,
+        thickness_mm: args.thickness,
+    };
+    let study = match monte_carlo(&problem, &tol, 1.0, args.trials, args.seed) {
+        Ok(study) => study,
+        Err(e) => {
+            eprintln!("tolerance study failed: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let spec_mm = args.spec_um.map_or(study.nominal * 2.0, |um| um / 1000.0);
+    println!(
+        "tolerance study of {}: {} random lenses, radii +/-{:.3} %, thicknesses +/-{:.3} mm, back focus refocused",
+        args.lens,
+        study.trials(),
+        args.radius_percent,
+        args.thickness
+    );
+    println!("nominal RMS spot radius {:.2} um", study.nominal * 1000.0);
+    println!(
+        "RMS spot radius over the lenses: median {:.2} um, 90th percentile {:.2} um, worst {:.2} um",
+        study.percentile(0.5) * 1000.0,
+        study.percentile(0.9) * 1000.0,
+        study.percentile(1.0) * 1000.0
+    );
+    println!(
+        "yield at {:.2} um: {:.1} % of lenses",
+        spec_mm * 1000.0,
+        study.yield_fraction(spec_mm) * 100.0
+    );
+    match loosest_scale(
+        &problem,
+        &tol,
+        spec_mm,
+        args.target_yield,
+        args.trials,
+        args.seed,
+    ) {
+        Ok(Some(scale)) => {
+            let limit = if scale >= MAX_SCALE {
+                " (the search limit)"
+            } else {
+                ""
+            };
+            println!(
+                "tolerance budget: to keep {:.0} % of lenses within {:.2} um, use radii +/-{:.3} % and thicknesses +/-{:.3} mm{limit}",
+                args.target_yield * 100.0,
+                spec_mm * 1000.0,
+                scale * args.radius_percent,
+                scale * args.thickness
+            );
+            ExitCode::SUCCESS
+        }
+        Ok(None) => {
+            println!("tolerance budget: the nominal design already misses the limit, so no tolerance can meet it");
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("tolerance budget failed: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run_draw(args: &DrawArgs) -> ExitCode {
+    let lens = match load_lens(&args.lens) {
+        Ok(lens) => lens,
+        Err(message) => {
+            eprintln!("{message}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let Some(svg) = lens_svg(&lens, args.rays, args.pupil, args.field) else {
+        eprintln!(
+            "{}: cannot draw this lens (no focus behind it, or --rays/--pupil out of range)",
+            args.lens
+        );
+        return ExitCode::FAILURE;
+    };
+    match write_file(&args.out, svg.as_bytes()) {
+        Ok(()) => {
+            println!("wrote {}", args.out);
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("cannot write {}: {e}", args.out);
+            ExitCode::FAILURE
+        }
+    }
+}
 fn run_glasses() -> ExitCode {
     println!("{:<14} {:>8} {:>8} {:>8}", "glass", "n_d", "V_d", "P_gF");
     for glass in catalog() {
