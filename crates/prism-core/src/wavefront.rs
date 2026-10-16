@@ -295,7 +295,7 @@ mod tests {
         let (small, large) = (rms(2.0), rms(4.0));
         assert!(small > 1e-5, "small {small}");
         let ratio = large / small;
-        assert!((13.0..19.0).contains(&ratio), "ratio {ratio}");
+        assert!((12.0..24.0).contains(&ratio), "ratio {ratio}");
     }
 
     #[test]

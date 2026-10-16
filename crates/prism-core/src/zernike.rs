@@ -33,7 +33,7 @@ pub fn noll_indices(j: usize) -> (u32, u32, bool) {
         n += 1;
         remaining -= n;
     }
-    let m = (n % 2) + 2 * remaining.midpoint((n + 1) % 2);
+    let m = (n % 2) + 2 * usize::midpoint(remaining, (n + 1) % 2);
     (n as u32, m as u32, m != 0 && (j & 1) == 1)
 }
 
@@ -44,7 +44,7 @@ pub fn radial(n: u32, m: u32, rho: f64) -> f64 {
         return 0.0;
     }
     let half_difference = (n - m) / 2;
-    let half_sum = n.midpoint(m);
+    let half_sum = u32::midpoint(n, m);
     let mut sum = 0.0;
     for k in 0..=half_difference {
         let sign = if (k & 1) == 0 { 1.0 } else { -1.0 };
